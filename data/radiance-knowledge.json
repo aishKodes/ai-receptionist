@@ -1,0 +1,22 @@
+{
+  "clinic": {
+    "name": "Radiance Clinics",
+    "location": "Bhubaneswar",
+    "safety": "Radiance AI Reception provides general information and booking support only. A qualified doctor must assess diagnosis, suitability and expected outcomes.",
+    "costGuidance": "The final cost depends on the concern, treatment plan and, where applicable, procedure extent. The clinic team can provide an accurate estimate after assessment."
+  },
+  "treatments": [
+    { "name": "Hair Loss", "slug": "hair_loss", "category": "Hair", "description": "Evaluation and care options for ongoing shedding, thinning and reduced density." },
+    { "name": "Hair Transplant", "slug": "hair_transplant", "category": "Hair", "description": "A consultation-led surgical hair restoration option. Suitability and graft planning require doctor assessment." },
+    { "name": "PRP", "slug": "prp", "category": "Hair", "description": "Platelet-rich plasma is one option doctors may consider as part of a personalised hair-care plan." },
+    { "name": "GFC", "slug": "gfc", "category": "Hair", "description": "Growth-factor concentrate may be discussed after assessment for selected hair concerns." },
+    { "name": "Beard Transplant", "slug": "beard_transplant", "category": "Hair", "description": "Consultation-led restoration for beard density or shape concerns." },
+    { "name": "Acne", "slug": "acne", "category": "Skin", "description": "Clinical assessment for active acne and a personalised management plan." },
+    { "name": "Acne Scars", "slug": "acne_scars", "category": "Skin", "description": "Assessment of scar type, skin condition and suitable procedure options." },
+    { "name": "Pigmentation", "slug": "pigmentation", "category": "Skin", "description": "Doctor-led evaluation of uneven tone and dark spots before treatment planning." },
+    { "name": "Melasma", "slug": "melasma", "category": "Skin", "description": "Long-term, clinically guided care for melasma after diagnosis." },
+    { "name": "Laser Treatments", "slug": "laser", "category": "Skin", "description": "Laser options vary by concern and skin type; assessment is essential." },
+    { "name": "Anti-ageing", "slug": "anti_ageing", "category": "Skin", "description": "Personalised consultation for age-related skin concerns and appropriate options." },
+    { "name": "General Skin", "slug": "general_skin", "category": "Skin", "description": "Consultation for a skin concern that needs further assessment." }
+  ]
+}

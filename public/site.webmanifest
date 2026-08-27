@@ -1,0 +1,16 @@
+{
+  "name": "Radiance AI Reception",
+  "short_name": "Radiance AI",
+  "description": "Intelligent patient reception for Radiance Clinics, Bhubaneswar.",
+  "start_url": "/inbox",
+  "display": "standalone",
+  "background_color": "#f4f7f5",
+  "theme_color": "#11261e",
+  "icons": [
+    {
+      "src": "/radiance-logo-mark.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
