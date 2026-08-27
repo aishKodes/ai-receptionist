@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n web,worker -c cyan,green \"npm:dev:web\" \"npm:dev:worker\"",
-    "dev:web": "next dev --webpack",
+    "dev:web": "next dev",
     "dev:worker": "tsx scripts/worker.ts",
     "setup": "tsx scripts/setup.ts",
     "db:push": "tsx scripts/setup.ts --no-seed",
@@ -17,6 +17,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .wrangler",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:demo": "vitest run tests/demo.test.ts",
     "build": "next build",
     "start": "next start"
   },
@@ -28,15 +29,15 @@
     "drizzle-orm": "0.45.2",
     "framer-motion": "^13.1.0",
     "lucide-react": "^1.31.0",
-    "next": "16.2.6",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
+    "next": "^16.3.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/vite-plugin": "^1.54.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "22.19.19",
@@ -47,14 +48,14 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
+    "react-server-dom-webpack": "^19.2.8",
     "tailwindcss": "4.2.1",
     "tsx": "^4.23.12",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
-    "vite": "8.0.13",
+    "vite": "^8.2.2",
     "vitest": "^4.1.10",
-    "wrangler": "4.92.0"
+    "wrangler": "^4.126.0"
   },
   "type": "module"
 }

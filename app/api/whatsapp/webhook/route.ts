@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getSqlite, makeId, nowIso } from "@/db";
-import { processPatientMessage } from "@/lib/ai/orchestrator";
-import { addEvent } from "@/lib/services/repository";
+import { processIncomingMessage } from "@/lib/channels/pipeline";
+import { verifyMetaSignature } from "@/lib/channels/whatsapp-cloud";
+import { addAudit } from "@/lib/services/repository";
 
 export function GET(request: NextRequest) {
   const mode = request.nextUrl.searchParams.get("hub.mode");
@@ -11,23 +13,67 @@ export function GET(request: NextRequest) {
   return new NextResponse("Verification failed", { status: 403 });
 }
 
-type WhatsAppPayload = { entry?: Array<{ changes?: Array<{ value?: { contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>; messages?: Array<{ from?: string; type?: string; text?: { body?: string } }> } }> }> };
+type MetaMessage = {
+  id?: string; from?: string; timestamp?: string; type?: string;
+  text?: { body?: string }; image?: { id?: string; mime_type?: string; caption?: string };
+  video?: { id?: string; mime_type?: string; caption?: string }; audio?: { id?: string; mime_type?: string };
+  document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
+  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+};
+type MetaStatus = { id?: string; status?: string; timestamp?: string; errors?: Array<{ code?: number; title?: string }> };
+type WhatsAppPayload = { entry?: Array<{ changes?: Array<{ value?: { contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>; messages?: MetaMessage[]; statuses?: MetaStatus[] } }> }> };
+
+function claimWebhookEvent(externalId: string, eventType: string, raw: string) {
+  const result = getSqlite().prepare("INSERT OR IGNORE INTO webhook_events (id,external_id,event_type,payload_hash,status,created_at) VALUES (?,?,?,?,?,?)").run(makeId("webhook"), externalId, eventType, crypto.createHash("sha256").update(raw).digest("hex"), "PROCESSING", nowIso());
+  return Boolean(result.changes);
+}
+
+function finishWebhookEvent(externalId: string) {
+  getSqlite().prepare("UPDATE webhook_events SET status='PROCESSED',processed_at=? WHERE external_id=?").run(nowIso(), externalId);
+}
+
 export async function POST(request: NextRequest) {
+  const raw = await request.text();
+  if (!verifyMetaSignature(raw, request.headers.get("x-hub-signature-256"))) return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
   try {
-    const body = await request.json() as WhatsAppPayload;
-    const value = body.entry?.[0]?.changes?.[0]?.value;
-    const incoming = value?.messages?.[0];
-    if (!incoming?.from || incoming.type !== "text" || !incoming.text?.body) return NextResponse.json({ ok: true, ignored: true });
-    const db = getSqlite();
-    let patient = db.prepare("SELECT id FROM patients WHERE replace(replace(replace(phone,' ',''),'+',''),'-','') LIKE ? LIMIT 1").get(`%${incoming.from}`) as { id: string } | undefined;
-    if (!patient) {
-      const patientId = makeId("pat"); const conversationId = makeId("con"); const now = nowIso(); const name = value?.contacts?.[0]?.profile?.name || "WhatsApp Patient";
-      db.prepare("INSERT INTO patients (id,name,phone,lead_score,lead_temperature,lead_stage,source,ai_summary,assigned_to,ai_enabled,created_at,updated_at,last_contact_at) VALUES (?,?,?,10,'COLD','new','whatsapp','New WhatsApp enquiry.','AI Reception',1,?,?,?)").run(patientId, name, `+${incoming.from}`, now, now, now);
-      db.prepare("INSERT INTO conversations (id,patient_id,channel,status,unread_count,ai_enabled,last_message_at,created_at) VALUES (?,?,'whatsapp','open',1,1,?,?)").run(conversationId, patientId, now, now);
-      patient = { id: patientId };
-      addEvent(patientId, conversationId, "CHANNEL_CONNECTED", "WhatsApp patient connected", "Incoming Cloud API webhook.");
+    const body = JSON.parse(raw) as WhatsAppPayload;
+    let processed = 0;
+    for (const entry of body.entry || []) {
+      for (const change of entry.changes || []) {
+        const value = change.value;
+        const contact = value?.contacts?.[0];
+        for (const status of value?.statuses || []) {
+          if (!status.id || !status.status) continue;
+          const externalEventId = `status:${status.id}:${status.status}:${status.timestamp || ""}`;
+          if (!claimWebhookEvent(externalEventId, "status", raw)) continue;
+          const normalizedStatus = status.status.toUpperCase();
+          const db = getSqlite();
+          db.prepare("UPDATE messages SET delivery_status=? WHERE external_message_id=?").run(normalizedStatus.toLowerCase(), status.id);
+          db.prepare("UPDATE outbound_messages SET status=?,error=?,delivered_at=CASE WHEN ?='DELIVERED' THEN ? ELSE delivered_at END,read_at=CASE WHEN ?='READ' THEN ? ELSE read_at END,failed_at=CASE WHEN ?='FAILED' THEN ? ELSE failed_at END,failure_code=CASE WHEN ?='FAILED' THEN ? ELSE failure_code END,failure_message=CASE WHEN ?='FAILED' THEN ? ELSE failure_message END WHERE external_message_id=?").run(normalizedStatus === "FAILED" ? "FAILED" : normalizedStatus, status.errors?.[0]?.title || null, normalizedStatus, nowIso(), normalizedStatus, nowIso(), normalizedStatus, nowIso(), normalizedStatus, status.errors?.[0]?.code || null, normalizedStatus, status.errors?.[0]?.title || null, status.id);
+          if (normalizedStatus === "FAILED") addAudit("META_ERROR", "outbound_message", status.id, "WhatsApp delivery failed", "SYSTEM", { code: status.errors?.[0]?.code || null });
+          finishWebhookEvent(externalEventId);
+          processed += 1;
+        }
+        for (const message of value?.messages || []) {
+          if (!message.id || !message.from) continue;
+          const externalEventId = `message:${message.id}`;
+          if (!claimWebhookEvent(externalEventId, "message", raw)) continue;
+          const media = message.image || message.video || message.audio || message.document;
+          const text = message.text?.body || message.image?.caption || message.video?.caption || message.document?.caption || message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || "";
+          await processIncomingMessage({
+            channel: "whatsapp", externalMessageId: message.id, from: message.from,
+            profileName: contact?.profile?.name, messageType: (message.type || "text") as "text" | "image" | "video" | "audio" | "document" | "interactive",
+            text, mediaId: media?.id, mediaMimeType: media?.mime_type,
+            timestamp: message.timestamp ? new Date(Number(message.timestamp) * 1000).toISOString() : undefined,
+          });
+          finishWebhookEvent(externalEventId);
+          processed += 1;
+        }
+      }
     }
-    await processPatientMessage(patient.id, incoming.text.body);
-    return NextResponse.json({ ok: true });
-  } catch (error) { console.error(`[WHATSAPP] webhook error: ${error instanceof Error ? error.message : "unknown"}`); return NextResponse.json({ ok: false }, { status: 500 }); }
+    return NextResponse.json({ ok: true, processed });
+  } catch (error) {
+    console.error(`[WHATSAPP] webhook processing failed: ${error instanceof Error ? error.name : "unknown"}`);
+    return NextResponse.json({ error: "Webhook could not be processed" }, { status: 400 });
+  }
 }

@@ -39,7 +39,7 @@ export function MessageBubble({ message, patientView = false }: { message: Messa
   }
   const isPatient = message.senderType === "patient";
   const own = patientView ? isPatient : !isPatient;
-  if (["youtube", "website", "before_after", "faq"].includes(message.messageType)) {
+  if (["youtube", "website", "before_after", "faq", "instruction"].includes(message.messageType)) {
     const verifiedRadiance = meta.verifiedRadiance === true;
     return <div className={`message-row ${own ? "own" : ""}`}><div className="content-message-card">
       <div className={`content-art type-${message.messageType}`}>{contentIcon(message.messageType)}<span>{verifiedRadiance ? "OFFICIAL RADIANCE VIDEO" : "DEMO CONTENT"}</span></div>

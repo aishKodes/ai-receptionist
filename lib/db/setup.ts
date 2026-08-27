@@ -16,17 +16,91 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS ai_events (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, event_type TEXT NOT NULL, title TEXT NOT NULL, details TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS available_slots (id TEXT PRIMARY KEY, date TEXT NOT NULL, time TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, UNIQUE(date, time))`,
+  `CREATE TABLE IF NOT EXISTS human_tasks (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, type TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'NORMAL', status TEXT NOT NULL DEFAULT 'OPEN', title TEXT NOT NULL, reason TEXT, suggested_reply TEXT, assigned_to TEXT, due_at TEXT, resolved_at TEXT, resolved_by TEXT, resolution TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS lead_score_events (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, previous_score INTEGER NOT NULL, new_score INTEGER NOT NULL, reason_codes_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT, summary TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS provider_usage (id TEXT PRIMARY KEY, patient_id TEXT REFERENCES patients(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, provider TEXT NOT NULL, model TEXT NOT NULL, operation TEXT NOT NULL, status TEXT NOT NULL, latency_ms INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER, output_tokens INTEGER, estimated_cost_usd TEXT, error_code TEXT, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS lead_imports (id TEXT PRIMARY KEY, file_name TEXT NOT NULL, status TEXT NOT NULL, total_rows INTEGER NOT NULL DEFAULT 0, imported_rows INTEGER NOT NULL DEFAULT 0, skipped_rows INTEGER NOT NULL DEFAULT 0, error_rows INTEGER NOT NULL DEFAULT 0, errors_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, completed_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS message_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, display_name TEXT, category TEXT NOT NULL DEFAULT 'MARKETING', language TEXT NOT NULL DEFAULT 'en', body TEXT NOT NULL, meta_template_name TEXT, status TEXT NOT NULL DEFAULT 'DRAFT', variables_json TEXT NOT NULL DEFAULT '[]', purpose TEXT, treatment_slug TEXT, active INTEGER NOT NULL DEFAULT 1, last_synced_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, name TEXT NOT NULL, template_id TEXT NOT NULL REFERENCES message_templates(id), status TEXT NOT NULL DEFAULT 'DRAFT', audience_json TEXT NOT NULL DEFAULT '{}', segment TEXT NOT NULL DEFAULT 'eligible_all', scheduled_for TEXT, rate_per_minute INTEGER NOT NULL DEFAULT 10, created_by TEXT NOT NULL DEFAULT 'Front Desk', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT, completed_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS outbound_messages (id TEXT PRIMARY KEY, campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, template_id TEXT REFERENCES message_templates(id) ON DELETE SET NULL, channel TEXT NOT NULL DEFAULT 'local_demo', rendered_body TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'QUEUED', external_message_id TEXT, meta_message_id TEXT, scheduled_for TEXT NOT NULL, sent_at TEXT, delivered_at TEXT, read_at TEXT, replied_at TEXT, failed_at TEXT, failure_code TEXT, failure_message TEXT, error TEXT, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, external_id TEXT NOT NULL UNIQUE, event_type TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, processed_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_patients_score ON patients(lead_score DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_due ON scheduled_jobs(status, scheduled_for)`,
   `CREATE INDEX IF NOT EXISTS idx_events_conversation_created ON ai_events(conversation_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_human_tasks_status_priority ON human_tasks(status, priority, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_score_events_patient_created ON lead_score_events(patient_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_entity_created ON audit_logs(entity_type, entity_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_provider_usage_created ON provider_usage(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_outbound_due ON outbound_messages(status, scheduled_for)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_campaign_patient ON outbound_messages(campaign_id, patient_id) WHERE campaign_id IS NOT NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_slot ON appointments(date_time) WHERE status = 'confirmed'`,
 ];
+
+const additiveColumns: Array<[string, string, string]> = [
+  ["patients", "whatsapp_id", "TEXT"],
+  ["patients", "whatsapp_opt_in_status", "TEXT NOT NULL DEFAULT 'UNKNOWN'"],
+  ["patients", "whatsapp_opt_in_date", "TEXT"],
+  ["patients", "whatsapp_opt_in_source", "TEXT"],
+  ["patients", "do_not_contact", "INTEGER NOT NULL DEFAULT 0"],
+  ["patients", "invalid_phone", "INTEGER NOT NULL DEFAULT 0"],
+  ["patients", "last_inbound_at", "TEXT"],
+  ["patients", "last_outbound_at", "TEXT"],
+  ["patients", "service_window_expires_at", "TEXT"],
+  ["messages", "external_message_id", "TEXT"],
+  ["content_items", "approved_for_ai", "INTEGER NOT NULL DEFAULT 1"],
+  ["human_tasks", "resolved_by", "TEXT"],
+  ["human_tasks", "resolution", "TEXT"],
+  ["message_templates", "display_name", "TEXT"],
+  ["message_templates", "variables_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["message_templates", "purpose", "TEXT"],
+  ["message_templates", "treatment_slug", "TEXT"],
+  ["message_templates", "active", "INTEGER NOT NULL DEFAULT 1"],
+  ["message_templates", "last_synced_at", "TEXT"],
+  ["campaigns", "segment", "TEXT NOT NULL DEFAULT 'eligible_all'"],
+  ["campaigns", "started_at", "TEXT"],
+  ["campaigns", "completed_at", "TEXT"],
+  ["outbound_messages", "payload_json", "TEXT NOT NULL DEFAULT '{}'"],
+  ["outbound_messages", "meta_message_id", "TEXT"],
+  ["outbound_messages", "delivered_at", "TEXT"],
+  ["outbound_messages", "read_at", "TEXT"],
+  ["outbound_messages", "replied_at", "TEXT"],
+  ["outbound_messages", "failed_at", "TEXT"],
+  ["outbound_messages", "failure_code", "TEXT"],
+  ["outbound_messages", "failure_message", "TEXT"],
+];
+
+function ensureAdditiveColumns() {
+  const db = getSqlite();
+  for (const [table, column, definition] of additiveColumns) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_message_id) WHERE external_message_id IS NOT NULL");
+}
+
+function ensureOperationalDefaults() {
+  const db = getSqlite();
+  const now = nowIso();
+  const insert = db.prepare("INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
+  insert.run("tpl_general_reengagement", "general_reengagement_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics, Bhubaneswar. You had previously contacted us regarding a consultation. If you would still like assistance, reply here and our team can help with the next step. Reply STOP to opt out.", null, "DRAFT", now, now);
+  insert.run("tpl_hair_followup", "hair_enquiry_followup_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.", null, "DRAFT", now, now);
+  insert.run("tpl_skin_followup", "skin_enquiry_followup_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.", null, "DRAFT", now, now);
+  insert.run("tpl_appointment_reminder", "appointment_reminder_v1", "UTILITY", "en", "Hi {{firstName}}, this is a reminder about your confirmed consultation at Radiance Clinics. Reply here if you need timing assistance.", null, "DRAFT", now, now);
+  insert.run("tpl_missed_appointment", "missed_appointment_followup_v1", "UTILITY", "en", "Hi {{firstName}}, we noticed you could not attend your consultation. Reply here if you would like reception to help find another time.", null, "DRAFT", now, now);
+  const setting = db.prepare("INSERT OR IGNORE INTO settings (key,value,updated_at) VALUES (?,?,?)");
+  setting.run("clinicOperatingHours", JSON.stringify({ monday: ["10:00", "18:30"], tuesday: ["10:00", "18:30"], wednesday: ["10:00", "18:30"], thursday: ["10:00", "18:30"], friday: ["10:00", "18:30"], saturday: ["10:00", "18:30"], sunday: null }), now);
+  setting.run("appointmentSlotMinutes", "30", now);
+  setting.run("humanCallScoreThreshold", "85", now);
+}
 
 export function createSchema() {
   const db = getSqlite();
   for (const statement of schemaStatements) db.prepare(statement).run();
+  ensureAdditiveColumns();
+  ensureOperationalDefaults();
   db.pragma("optimize");
 }
 
@@ -48,7 +122,7 @@ export function seedDatabase(force = false) {
 
   const seed = db.transaction(() => {
     db.pragma("foreign_keys = OFF");
-    for (const table of ["scheduled_jobs", "appointments", "messages", "ai_events", "conversations", "patients", "content_items", "treatments", "available_slots", "settings"]) db.prepare(`DELETE FROM ${table}`).run();
+    for (const table of ["outbound_messages", "campaigns", "message_templates", "lead_imports", "provider_usage", "audit_logs", "lead_score_events", "human_tasks", "webhook_events", "scheduled_jobs", "appointments", "messages", "ai_events", "conversations", "patients", "content_items", "treatments", "available_slots", "settings"]) db.prepare(`DELETE FROM ${table}`).run();
     db.pragma("foreign_keys = ON");
     const now = nowIso();
     const insertTreatment = db.prepare("INSERT INTO treatments (id,name,slug,category,description,approved_response_guidance,booking_enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
@@ -100,6 +174,9 @@ export function seedDatabase(force = false) {
       dormantLeadFollowup: "true"
     };
     Object.entries(settings).forEach(([key, value]) => insertSetting.run(key, value, now));
+    const insertTemplate = db.prepare("INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
+    insertTemplate.run("tpl_consultation", "Consultation invitation", "MARKETING", "en", "Hi {{firstName}}, thank you for contacting Radiance Clinics. Would you like help finding a consultation time for {{concern}}? Reply STOP to opt out.", null, "DRAFT", now, now);
+    insertTemplate.run("tpl_followup", "Gentle enquiry follow-up", "MARKETING", "en", "Hi {{firstName}}, we are checking whether you still need help with {{concern}}. Reply here for assistance or STOP to opt out.", null, "DRAFT", now, now);
   });
   seed();
   return { seeded: true, patients: seedPatients.length };

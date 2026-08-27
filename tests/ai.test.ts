@@ -26,7 +26,7 @@ describe("Radiance reception intelligence", () => {
     expect(decision.treatmentSlug).toBe("hair_transplant");
     expect(decision.extracted.age).toBe(29);
     expect(decision.extracted.duration).toBe("3 years");
-    expect(decision.shouldSendContent).toBe(true);
+    expect(decision.shouldSearchContent).toBe(true);
   });
 
   it("uses deterministic safety escalation", () => {

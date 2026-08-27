@@ -6,4 +6,5 @@ export interface AIProvider {
   generateReceptionDecision(input: ReceptionInput): Promise<ReceptionDecision>;
   summarizePatient(input: SummaryInput): Promise<string>;
   healthCheck(): Promise<{ connected: boolean; latency: number; model: string; message: string }>;
+  lastUsage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number };
 }

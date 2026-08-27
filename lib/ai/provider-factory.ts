@@ -1,24 +1,34 @@
 import type { AIProvider } from "./providers/provider";
 import { MockProvider } from "./providers/mock";
+import { DeepSeekProvider } from "./providers/deepseek";
+import { GeminiProvider } from "./providers/gemini";
 import { RemoteProvider } from "./providers/remote";
 
 export function providerStatus() {
-  const configured = (process.env.AI_PROVIDER || "auto").toLowerCase();
-  let active = configured;
-  if (configured === "auto") {
-    if (process.env.OPENAI_API_KEY) active = "openai";
-    else if (process.env.GEMINI_API_KEY) active = "gemini";
-    else if (process.env.DEEPSEEK_API_KEY) active = "deepseek";
-    else active = "mock";
-  }
-  const model = process.env.AI_MODEL || (active === "openai" ? "gpt-5.6-terra" : active === "gemini" ? "gemini-2.5-flash" : active === "deepseek" ? "deepseek-chat" : "Radiance deterministic demo AI");
-  const hasKey = active === "mock" || Boolean(active === "openai" ? process.env.OPENAI_API_KEY : active === "gemini" ? process.env.GEMINI_API_KEY : process.env.DEEPSEEK_API_KEY);
-  return { configured, active, model, hasKey, fallback: process.env.AI_FALLBACK_TO_MOCK !== "false" };
+  const legacy = process.env.AI_PROVIDER?.toLowerCase();
+  const primaryProvider = (legacy === "mock" ? "mock" : process.env.AI_PRIMARY_PROVIDER || legacy || "deepseek").toLowerCase();
+  const primaryModel = process.env.AI_PRIMARY_MODEL || process.env.AI_MODEL || (primaryProvider === "deepseek" ? "deepseek-v4-flash" : primaryProvider === "gemini" ? "gemini-3.7-flash" : "Radiance deterministic demo AI");
+  const fallbackProvider = (process.env.AI_FALLBACK_PROVIDER || "gemini").toLowerCase();
+  const fallbackModel = process.env.AI_FALLBACK_MODEL || (fallbackProvider === "gemini" ? "gemini-3.7-flash" : "deepseek-v4-flash");
+  const keyFor = (name: string) => name === "mock" || Boolean(name === "deepseek" ? process.env.DEEPSEEK_API_KEY : name === "gemini" ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY);
+  return {
+    configured: primaryProvider,
+    active: primaryProvider,
+    model: primaryModel,
+    hasKey: keyFor(primaryProvider),
+    primary: { provider: keyFor(primaryProvider) ? primaryProvider : "mock", model: keyFor(primaryProvider) ? primaryModel : "Radiance deterministic demo AI", configured: keyFor(primaryProvider) },
+    fallback: { provider: keyFor(fallbackProvider) ? fallbackProvider : "mock", model: keyFor(fallbackProvider) ? fallbackModel : "Radiance deterministic demo AI", enabled: process.env.AI_ALLOW_FALLBACK !== "false", configured: keyFor(fallbackProvider) },
+  };
+}
+
+export function getProviderByName(name: string, model?: string): AIProvider {
+  if (name === "deepseek" && process.env.DEEPSEEK_API_KEY) return new DeepSeekProvider(model, process.env.DEEPSEEK_API_KEY);
+  if (name === "gemini" && process.env.GEMINI_API_KEY) return new GeminiProvider(model, process.env.GEMINI_API_KEY);
+  if (name === "openai" && process.env.OPENAI_API_KEY) return new RemoteProvider("openai", model || "gpt-5.6-terra", process.env.OPENAI_API_KEY);
+  return new MockProvider();
 }
 
 export function getProvider(): AIProvider {
   const status = providerStatus();
-  if (!status.hasKey || status.active === "mock") return new MockProvider();
-  const key = status.active === "openai" ? process.env.OPENAI_API_KEY! : status.active === "gemini" ? process.env.GEMINI_API_KEY! : process.env.DEEPSEEK_API_KEY!;
-  return new RemoteProvider(status.active as "openai" | "gemini" | "deepseek", status.model, key);
+  return getProviderByName(status.primary.provider, status.primary.model);
 }

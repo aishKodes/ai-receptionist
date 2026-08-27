@@ -1,8 +1,8 @@
 # Radiance AI Reception
 
-Local, working AI reception, CRM, appointment and follow-up demo for Radiance Clinics, Bhubaneswar.
+Local-first AI reception, CRM, booking, follow-up, human-attention, CSV import, outreach, and WhatsApp Cloud API readiness for Radiance Clinics, Bhubaneswar.
 
-## Quick Start
+## Run locally
 
 ```bash
 npm install
@@ -11,103 +11,93 @@ npm run setup
 npm run dev
 ```
 
-Open:
+Open [http://localhost:3000/demo/scenario](http://localhost:3000/demo/scenario) for the doctor demo, [http://localhost:3000/inbox](http://localhost:3000/inbox) for reception, and [http://localhost:3000/demo/patient](http://localhost:3000/demo/patient) for the patient view. `npm run dev` starts Next.js and the persistent scheduler/outreach worker. Local data stays in `data/radiance.db`.
 
-- http://localhost:3000/inbox
-- http://localhost:3000/demo/patient
-- http://localhost:3000/demo/control
+## AI providers
 
-`npm run dev` starts the Next.js app and persistent follow-up worker together. The SQLite database is stored at `data/radiance.db`.
-
-## Add AI
-
-No key is required. With the default `AI_PROVIDER=auto`, the app uses the first configured provider and otherwise uses the fully functional deterministic demo AI.
-
-### OpenAI
+Provider keys stay server-side. The model receives a minimal, redacted patient context without phone, WhatsApp ID, email, raw CSV data, or internal IDs. Model output is repaired once when necessary and must pass the strict `ReceptionDecision` schema. The server alone executes bookings, content selection, scoring, and handoffs.
 
 ```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=...
-AI_MODEL=gpt-5.6-terra
+AI_PRIMARY_PROVIDER=deepseek
+AI_PRIMARY_MODEL=deepseek-v4-flash
+DEEPSEEK_API_KEY=
+
+AI_FALLBACK_PROVIDER=gemini
+AI_FALLBACK_MODEL=gemini-3.7-flash
+GEMINI_API_KEY=
+
+AI_ALLOW_FALLBACK=true
+AI_FALLBACK_TO_MOCK=true
 ```
 
-### Gemini
+If a real provider is absent or fails, the safe deterministic mock keeps local development functional. Provider health, latency, errors, fallbacks, token usage, and estimated cost fields are stored for admin analytics.
+
+## Shared message pipeline
+
+Set `MESSAGE_CHANNEL=local`, `mock_meta`, or `whatsapp`. Local Patient Simulator, Mock Meta, and signed Cloud API webhooks normalize into the same pipeline:
+
+```text
+channel → normalized inbound → opt-out/media/safety → AI router
+        → structured decision → server business rules → CRM/reply/task
+```
+
+WhatsApp business logic does not live in the webhook adapter. Media metadata is stored and sent to staff review; the AI does not diagnose images.
+
+## CSV and outreach
+
+- `/leads/import` provides upload, mapping, validation, preview, and import steps.
+- CSV is limited to 2 MB, formula-like cells are escaped, Indian numbers are normalized, and duplicates can be skipped, safely updated, or merged.
+- A phone number never implies consent. Only `CONFIRMED` records are automatically outreach-eligible.
+- `/outreach` uses drafts, eligibility filtering, local test sends, manual start, a persistent rate-limited queue, and a final eligibility recheck.
+- Live WhatsApp campaigns additionally require a template marked `APPROVED` by Meta.
+- `STOP`, `UNSUBSCRIBE`, `REMOVE ME`, and equivalent explicit messages revoke consent and cancel pending outreach.
+
+## Meta readiness
+
+Local development does not require Meta. Configure these later:
 
 ```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=...
-AI_MODEL=gemini-2.5-flash
+MESSAGE_CHANNEL=whatsapp
+META_APP_ID=
+META_APP_SECRET=
+META_BUSINESS_ID=
+WHATSAPP_WABA_ID=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_VERIFY_TOKEN=
+WHATSAPP_GRAPH_VERSION=v23.0
+WHATSAPP_ENABLED=true
 ```
 
-### DeepSeek
+Use `/settings/meta` for safe configured/missing diagnostics and `/demo/meta` for local inbound/media/status/template simulations. The webhook is `GET/POST /api/whatsapp/webhook`; POST requests require `X-Hub-Signature-256`, are idempotent, and process text, media metadata, interactive replies, and sent/delivered/read/failed events.
 
-```env
-AI_PROVIDER=deepseek
-DEEPSEEK_API_KEY=...
-AI_MODEL=deepseek-chat
-```
+## Doctor demo
 
-Only one key is needed. Restart `npm run dev` after editing `.env.local`. Provider requests are server-side, validated with Zod, time-limited, and fall back to the demo AI when enabled.
+Use `/demo/scenario`. Its buttons execute real application actions for:
 
-## Doctor Demo
+- live hair-transplant enquiry and explainable CRM scoring;
+- old-lead re-engagement and call recommendation;
+- human takeover and resume with context;
+- real slot booking and reminder execution;
+- no-show recovery;
+- consent-aware CSV import.
 
-1. Open `/inbox` and `/demo/patient` side by side.
-2. In the patient simulator, send: `Hi, I'm 29 and my hair has become very thin from the front for almost 3 years. I'm thinking about hair transplant.`
-3. Show the inbox identify Hair Transplant, age 29, concern, duration, hot score, CRM events and relevant content.
-4. Send: `How much does it cost?` Show the safe assessment-based answer with no invented price.
-5. Send: `Can I come tomorrow evening?` Show 5:00 PM, 5:30 PM and 6:00 PM from the real slot inventory.
-6. Send: `5:30 works` Show the confirmed appointment, CRM stage and scheduled reminders.
-7. Wait 45 seconds for the first compressed demo reminder, or use **Trigger Reminder Now** in Demo Control.
-8. In the inbox click **Take Over**, send a human reception message, then click **Return to AI**.
-9. Send `Thank you` from the patient simulator to show that AI resumes with appointment context.
-
-## Reset Demo
-
-Use **RESET PRIMARY DEMO** at `/demo/control`, or run:
+The full scripted acceptance flow is also automated:
 
 ```bash
-npm run db:reset
+npm run test:demo
 ```
 
-This restores the seeded CRM, fresh Rahul conversation, content library, slots and automation settings.
-
-## Commands
+## Validation and maintenance
 
 ```bash
-npm run setup       # idempotent schema + seed setup
-npm run db:seed     # reset and reseed
-npm run db:reset    # reset the primary demo
-npm run dev         # web + follow-up worker
+npm run setup       # additive/idempotent schema setup; preserves current data
+npm run db:reset    # intentionally reset and reseed the demo database
 npm run lint
 npm run typecheck
 npm test
+npm run test:demo
 npm run build
-npm start
 ```
 
-## Optional WhatsApp Cloud API
-
-The local simulator does not require WhatsApp. To prepare the official connector, fill these values in `.env.local`:
-
-```env
-WHATSAPP_ENABLED=true
-WHATSAPP_ACCESS_TOKEN=...
-WHATSAPP_PHONE_NUMBER_ID=...
-WHATSAPP_BUSINESS_ACCOUNT_ID=...
-WHATSAPP_VERIFY_TOKEN=...
-WHATSAPP_API_VERSION=v23.0
-PUBLIC_WEBHOOK_BASE_URL=https://your-public-url.example
-```
-
-Webhook endpoints:
-
-- `GET/POST /api/whatsapp/webhook`
-- `POST /api/whatsapp/send`
-
-Meta requires a public HTTPS webhook. If `cloudflared` is installed, expose it only when you explicitly choose to:
-
-```bash
-cloudflared tunnel --url http://localhost:3000
-```
-
-Then configure the generated HTTPS URL plus `/api/whatsapp/webhook` in Meta. The Cloud API token, phone number ID, business account ID, verify token and approved Meta configuration are still required for a real connection.
+Important actions are written to append-only audit records. API keys and environment files are ignored by Git; SQLite database files are also excluded.

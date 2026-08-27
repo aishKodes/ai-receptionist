@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getMessageChannel } from "@/lib/whatsapp/channel";
+import { enforceRateLimit, enforceSameOrigin } from "@/lib/security/http";
 
 const Schema = z.object({ to: z.string().min(8), text: z.string().min(1).max(2000), url: z.string().url().optional() });
 export async function POST(request: NextRequest) {
   try {
+    enforceSameOrigin(request); enforceRateLimit(request, "whatsapp-send", 20);
     const input = Schema.parse(await request.json());
     const channel = getMessageChannel();
     const result = input.url ? await channel.sendContent({ ...input, url: input.url }) : await channel.sendText(input);

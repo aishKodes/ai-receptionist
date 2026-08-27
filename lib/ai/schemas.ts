@@ -3,7 +3,7 @@ import { z } from "zod";
 export const IntentSchema = z.enum([
   "hair_loss", "hair_transplant", "prp", "gfc", "beard_transplant",
   "acne", "acne_scars", "pigmentation", "melasma", "laser", "anti_ageing",
-  "general_skin", "general_hair", "booking", "reschedule", "pricing", "human_request", "unknown"
+  "general_skin", "general_hair", "appointment", "reschedule", "cancellation", "pricing", "human_request", "complaint", "post_procedure_concern", "unknown"
 ]);
 
 export const TreatmentSlugSchema = z.enum([
@@ -21,19 +21,24 @@ export const ReceptionDecisionSchema = z.object({
     gender: z.string().nullable(),
     concern: z.string().nullable(),
     duration: z.string().nullable(),
-    preferredDate: z.string().nullable(),
-    preferredTime: z.string().nullable(),
+    desiredDate: z.string().nullable(),
+    desiredTime: z.string().nullable(),
   }),
-  leadStage: z.enum(["new", "engaged", "qualified", "booking_offered", "appointment_requested", "booked", "follow_up", "human_required"]),
-  leadScore: z.number().min(0).max(100),
+  intentConfidence: z.number().min(0).max(1),
   treatmentSlug: TreatmentSlugSchema.nullable(),
-  shouldSendContent: z.boolean(),
+  shouldSearchContent: z.boolean(),
   contentQuery: z.string().nullable(),
   shouldOfferBooking: z.boolean(),
-  shouldEscalateHuman: z.boolean(),
-  escalationReason: z.string().nullable(),
-  internalSummary: z.string(),
-});
+  humanEscalation: z.object({
+    required: z.boolean(),
+    recommended: z.boolean(),
+    type: z.enum(["call", "chat", "doctor_review", "none"]),
+    priority: z.enum(["urgent", "high", "normal", "low"]),
+    reason: z.string().nullable(),
+  }),
+  suggestedNextAction: z.string().min(1).max(300),
+  internalSummary: z.string().max(800),
+}).strict();
 
 export type ReceptionDecision = z.infer<typeof ReceptionDecisionSchema>;
 
@@ -54,3 +59,18 @@ export const IncomingMessageSchema = z.object({
   content: z.string().trim().min(1).max(2000),
   senderType: z.enum(["patient", "human"]).default("patient"),
 });
+
+export const NormalizedInboundSchema = z.object({
+  channel: z.enum(["local", "whatsapp", "mock_meta"]),
+  patientId: z.string().min(1).optional(),
+  externalMessageId: z.string().max(200).optional(),
+  from: z.string().min(8).max(30).optional(),
+  profileName: z.string().max(120).optional(),
+  messageType: z.enum(["text", "image", "video", "audio", "document", "interactive"]).default("text"),
+  text: z.string().trim().max(4000).default(""),
+  mediaId: z.string().max(300).optional(),
+  mediaMimeType: z.string().max(120).optional(),
+  timestamp: z.string().optional(),
+});
+
+export type NormalizedInbound = z.infer<typeof NormalizedInboundSchema>;

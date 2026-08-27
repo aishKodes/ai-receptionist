@@ -9,22 +9,20 @@ const DECISION_CONTRACT = `Return exactly one JSON object with these fields and 
 {
   "reply": "short patient-facing reply",
   "intent": "unknown",
-  "extracted": { "name": null, "age": null, "gender": null, "concern": null, "duration": null, "preferredDate": null, "preferredTime": null },
-  "leadStage": "engaged",
-  "leadScore": 10,
+  "extracted": { "name": null, "age": null, "gender": null, "concern": null, "duration": null, "desiredDate": null, "desiredTime": null },
+  "intentConfidence": 0.5,
   "treatmentSlug": null,
-  "shouldSendContent": false,
+  "shouldSearchContent": false,
   "contentQuery": null,
   "shouldOfferBooking": false,
-  "shouldEscalateHuman": false,
-  "escalationReason": null,
+  "humanEscalation": { "required": false, "recommended": false, "type": "none", "priority": "low", "reason": null },
+  "suggestedNextAction": "Ask one clarifying question",
   "internalSummary": "short factual summary"
 }
 
-The intent value MUST be exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, general_skin, general_hair, booking, reschedule, pricing, human_request, unknown.
-The leadStage value MUST be exactly one of: new, engaged, qualified, booking_offered, appointment_requested, booked, follow_up, human_required.
+The intent value MUST be exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, general_skin, general_hair, appointment, reschedule, cancellation, pricing, human_request, complaint, post_procedure_concern, unknown.
 The treatmentSlug value MUST be null or exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, general_skin, general_hair.
-Use null for facts not reliably present in the latest message. If present, preferredDate must be YYYY-MM-DD and preferredTime must be HH:mm in 24-hour time. Never invent alternate labels or synonyms for enum values.`;
+Use null for facts not reliably present in the latest message. If present, desiredDate must be YYYY-MM-DD and desiredTime must be HH:mm in 24-hour time. Never invent alternate labels or synonyms for enum values.`;
 
 function extractJson(text: string) {
   const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -35,6 +33,7 @@ function extractJson(text: string) {
 }
 
 export class RemoteProvider implements AIProvider {
+  lastUsage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number };
   constructor(public name: RemoteName, public model: string, private key: string) {}
 
   private async generateText(input: string, system = RECEPTION_SYSTEM_PROMPT) {
@@ -46,7 +45,8 @@ export class RemoteProvider implements AIProvider {
         body: JSON.stringify({ model: this.model, instructions: system, input, reasoning: { effort: "low" }, text: { verbosity: "low" } }),
       });
       if (!response.ok) throw new Error(`OpenAI request failed (${response.status})`);
-      const json = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
+      const json = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number } };
+      this.lastUsage = { inputTokens: json.usage?.input_tokens, outputTokens: json.usage?.output_tokens };
       return json.output_text || json.output?.flatMap((item) => item.content || []).map((item) => item.text || "").join("") || "";
     }
     if (this.name === "gemini") {
@@ -55,7 +55,8 @@ export class RemoteProvider implements AIProvider {
         body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: input }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.3 } }),
       });
       if (!response.ok) throw new Error(`Gemini request failed (${response.status})`);
-      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } };
+      this.lastUsage = { inputTokens: json.usageMetadata?.promptTokenCount, outputTokens: json.usageMetadata?.candidatesTokenCount };
       return json.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
     }
     const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -64,7 +65,8 @@ export class RemoteProvider implements AIProvider {
       body: JSON.stringify({ model: this.model, response_format: { type: "json_object" }, temperature: 0.3, messages: [{ role: "system", content: system }, { role: "user", content: input }] }),
     });
     if (!response.ok) throw new Error(`DeepSeek request failed (${response.status})`);
-    const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const json = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+    this.lastUsage = { inputTokens: json.usage?.prompt_tokens, outputTokens: json.usage?.completion_tokens };
     return json.choices?.[0]?.message?.content || "";
   }
 

@@ -37,7 +37,7 @@ export class MockProvider implements AIProvider {
 
   async generateReceptionDecision(input: ReceptionInput): Promise<ReceptionDecision> {
     const text = input.message.trim();
-    const existingTreatmentResult = TreatmentSlugSchema.safeParse(input.patient.treatmentSlug);
+    const existingTreatmentResult = TreatmentSlugSchema.safeParse(input.patient.treatmentSlug ?? input.patient.previousInterest);
     const existingTreatment = existingTreatmentResult.success ? existingTreatmentResult.data : null;
     const detected = treatmentRules.find(([, rule]) => rule.test(text))?.[0] ?? existingTreatment;
     const ageMatch = text.match(/(?:i\s*(?:am|'m)|age(?:d)?(?:\s+is)?|aged)\s*(\d{1,2})\b/i);
@@ -45,24 +45,31 @@ export class MockProvider implements AIProvider {
     const nameMatch = text.match(/(?:my name is|this is|i am|i'm)\s+([A-Z][a-z]{2,})(?!\s*\d)/);
     const isPrice = /\b(price|cost|charges?|how much|estimate)\b/i.test(text);
     const isThanks = /\b(thank|thanks)\b/i.test(text);
-    const wantsHuman = /\b(human|receptionist|real person|speak to (?:the )?doctor|call me)\b/i.test(text);
+    const wantsCall = /\b(call me|call back|phone me)\b/i.test(text);
+    const wantsHuman = wantsCall || /\b(human|receptionist|real person|speak to (?:the )?doctor)\b/i.test(text);
     const isReschedule = /reschedule|change.*(?:time|appointment)/i.test(text);
+    const isCancellation = /cancel.*(?:appointment|booking)|cannot make it|can't make it/i.test(text);
+    const isComplaint = /complaint|very unhappy|terrible service|refund/i.test(text);
+    const isPostProcedure = /after (?:the )?(?:procedure|treatment|transplant)|post.?procedure|swelling|bleeding/i.test(text);
     const isBooking = /\b(appointment|consultation|book|come|visit|today|tomorrow|morning|evening)\b/i.test(text);
     const time = parseTime(text);
     const preferredDate = /tomorrow/i.test(text) ? format(addDays(new Date(), 1), "yyyy-MM-dd") : /today/i.test(text) ? format(new Date(), "yyyy-MM-dd") : null;
     const concern = text.length > 30 && detected && !isPrice && !isBooking ? text.replace(/^hi[,!\s]*/i, "").replace(/i(?:'m| am)\s*\d{1,2}\s*(?:and)?/i, "").trim() : null;
     let intent: ReceptionDecision["intent"] = (detected as ReceptionDecision["intent"]) || "unknown";
     if (wantsHuman) intent = "human_request";
+    else if (isPostProcedure) intent = "post_procedure_concern";
+    else if (isComplaint) intent = "complaint";
+    else if (isCancellation) intent = "cancellation";
     else if (isReschedule) intent = "reschedule";
     else if (isPrice) intent = "pricing";
-    else if (isBooking || time) intent = "booking";
+    else if (isBooking || time) intent = "appointment";
 
     let reply = "Thank you for reaching out to Radiance Clinics. Could you briefly share the concern you’d like help with?";
     if (wantsHuman) reply = "Of course. I’m alerting the Radiance reception team so a person can assist you directly.";
     else if (isPrice) reply = "The final cost depends on your concern, the treatment plan and, where applicable, the procedure extent. The clinic team can give you an accurate estimate after a doctor’s assessment. I can help you book a consultation if you’d like.";
     else if (isBooking) reply = "I can help with that. I’ll check the clinic’s available consultation times for you.";
     else if (isThanks) {
-      const appointment = input.patient.leadStage === "booked";
+      const appointment = (input.patient.leadStage ?? input.patient.stage) === "booked" || (input.patient.appointment as { status?: string } | null)?.status === "confirmed";
       reply = appointment ? `You’re welcome${input.patient.name ? `, ${String(input.patient.name).split(" ")[0]}` : ""}. Your consultation remains confirmed. Message anytime if you need help before your visit.` : "You’re very welcome. Message anytime if you’d like help with a consultation.";
     } else if (detected) {
       const name = treatmentName(detected);
@@ -77,15 +84,20 @@ export class MockProvider implements AIProvider {
     return {
       reply,
       intent,
-      extracted: { name: nameMatch?.[1] ?? null, age: ageMatch ? Number(ageMatch[1]) : null, gender: null, concern, duration: durationMatch?.[1] ?? null, preferredDate, preferredTime: time },
-      leadStage: wantsHuman ? "human_required" : isBooking ? "appointment_requested" : isThanks && input.patient.leadStage === "booked" ? "booked" : detected ? "qualified" : "engaged",
-      leadScore: Number(input.patient.leadScore ?? 10),
+      extracted: { name: nameMatch?.[1] ?? null, age: ageMatch ? Number(ageMatch[1]) : null, gender: null, concern, duration: durationMatch?.[1] ?? null, desiredDate: preferredDate, desiredTime: time },
+      intentConfidence: detected || wantsHuman || isBooking || isPrice || isReschedule || isCancellation || isComplaint || isPostProcedure ? 0.96 : isThanks ? 0.85 : 0.42,
       treatmentSlug: detected,
-      shouldSendContent: Boolean(detected && !isPrice && !isBooking && !isThanks),
+      shouldSearchContent: Boolean(detected && !isPrice && !isBooking && !isThanks && !isPostProcedure),
       contentQuery: detected ? `${detected} ${text}` : null,
       shouldOfferBooking: isBooking,
-      shouldEscalateHuman: wantsHuman,
-      escalationReason: wantsHuman ? "Patient requested a person" : null,
+      humanEscalation: {
+        required: wantsHuman || isPostProcedure,
+        recommended: wantsHuman || isPostProcedure || isComplaint,
+        type: isPostProcedure ? "doctor_review" : isComplaint || (wantsHuman && !wantsCall) ? "chat" : wantsCall ? "call" : "none",
+        priority: isPostProcedure ? "high" : isComplaint ? "high" : wantsHuman ? "normal" : "low",
+        reason: wantsHuman ? "Patient requested a person" : isPostProcedure ? "Post-procedure concern requires clinical review" : isComplaint ? "Complaint requires staff follow-up" : null,
+      },
+      suggestedNextAction: isBooking ? "Check real appointment availability" : wantsHuman ? "Create a reception task" : detected ? "Answer briefly and offer relevant approved content" : "Ask one clarifying question",
       internalSummary: detected ? `Patient is discussing ${treatmentName(detected).toLowerCase()}.` : "Patient has started a general enquiry.",
     };
   }

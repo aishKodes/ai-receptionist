@@ -5,6 +5,7 @@ import { getSqlite, makeId, nowIso } from "@/db";
 import { seedDatabase } from "@/lib/db/setup";
 import { processDueJobsOnce } from "@/lib/scheduling/worker";
 import { addEvent, addMessage, getPatientContext, setSettings, updatePatient } from "@/lib/services/repository";
+import { enforceRateLimit, enforceSameOrigin } from "@/lib/security/http";
 
 const Schema = z.object({ action: z.string(), patientId: z.string().optional(), values: z.record(z.string(), z.string()).optional() });
 
@@ -24,6 +25,7 @@ function createLead(source: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    enforceSameOrigin(request); enforceRateLimit(request, "demo", 60);
     const { action, patientId = "pat_rahul", values } = Schema.parse(await request.json());
     if (action === "reset") return NextResponse.json({ ok: true, result: seedDatabase(true) });
     if (action === "settings" && values) { setSettings(values); return NextResponse.json({ ok: true }); }
