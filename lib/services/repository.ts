@@ -210,7 +210,10 @@ export function ensurePatientForChannel(args: { phone: string; name?: string | n
     addAudit("PATIENT_CREATED", "patient", patientId, `Patient created from ${args.channel}`, "SYSTEM");
     patient = { id: patientId };
   } else if (args.whatsappId) {
-    db.prepare("UPDATE patients SET whatsapp_id=COALESCE(whatsapp_id,?),updated_at=? WHERE id=?").run(args.whatsappId, nowIso(), patient.id);
+    db.transaction(() => {
+      db.prepare("UPDATE patients SET whatsapp_id=COALESCE(whatsapp_id,?),name=CASE WHEN name IN ('New Patient','WhatsApp Patient') AND ? IS NOT NULL THEN ? ELSE name END,updated_at=? WHERE id=?").run(args.whatsappId, args.name?.trim() || null, args.name?.trim() || null, nowIso(), patient!.id);
+      db.prepare("UPDATE conversations SET channel=? WHERE id=(SELECT id FROM conversations WHERE patient_id=? ORDER BY last_message_at DESC LIMIT 1)").run(args.channel, patient!.id);
+    })();
   }
   return getPatientContext(patient.id)!;
 }

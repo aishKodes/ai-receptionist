@@ -1,6 +1,7 @@
 import { getSqlite, nowIso } from "@/db";
 import { NormalizedInboundSchema, type NormalizedInbound } from "@/lib/ai/schemas";
 import { processPatientMessage } from "@/lib/ai/orchestrator";
+import { deliverConversationRepliesAfter, messageRowId } from "@/lib/channels/delivery";
 import { addAudit, addEvent, addMessage, createHumanTask, ensurePatientForChannel, getPatientContext, updatePatient } from "@/lib/services/repository";
 
 const optOutPattern = /^(?:stop|unsubscribe|remove me|don't message me|do not message me|opt out)[.!\s]*$/i;
@@ -29,7 +30,12 @@ export async function processIncomingMessage(raw: NormalizedInbound) {
   const patientId = String(context.patient.id);
   const conversationId = String(context.conversation.id);
   const displayText = incoming.text || `[${incoming.messageType} received]`;
-  addMessage({ patientId, conversationId, direction: "inbound", senderType: "patient", content: displayText, messageType: incoming.messageType, mediaUrl: incoming.mediaId ? `meta-media://${incoming.mediaId}` : null, externalMessageId: incoming.externalMessageId, metadata: { channel: incoming.channel, mimeType: incoming.mediaMimeType || null } });
+  const inbound = addMessage({ patientId, conversationId, direction: "inbound", senderType: "patient", content: displayText, messageType: incoming.messageType, mediaUrl: incoming.mediaId ? `meta-media://${incoming.mediaId}` : null, externalMessageId: incoming.externalMessageId, metadata: { channel: incoming.channel, mimeType: incoming.mediaMimeType || null } });
+  const inboundRowId = messageRowId(inbound.id);
+  const finish = async <T extends Record<string, unknown>>(result: T) => {
+    const deliveries = await deliverConversationRepliesAfter(conversationId, inboundRowId, incoming.channel);
+    return { ...result, deliveries };
+  };
 
   db.prepare("UPDATE outbound_messages SET status='REPLIED',replied_at=? WHERE id=(SELECT id FROM outbound_messages WHERE patient_id=? AND status IN ('SENT','DELIVERED','READ') ORDER BY sent_at DESC LIMIT 1)").run(nowIso(), patientId);
 
@@ -42,16 +48,16 @@ export async function processIncomingMessage(raw: NormalizedInbound) {
     addEvent(patientId, conversationId, "OPT_OUT", "Patient opted out", "Future automated outreach was stopped.");
     addAudit("OPT_OUT", "patient", patientId, "WhatsApp consent revoked and queued outreach cancelled", "SYSTEM");
     addMessage({ patientId, conversationId, direction: "outbound", senderType: "system", content: "You have been opted out of promotional messages from Radiance Clinics. We will not automatically opt you back in. You may contact reception if you wish to give consent again." });
-    return { patientId, mode: "opt_out", replied: true };
+    return finish({ patientId, mode: "opt_out", replied: true });
   }
 
   if (incoming.messageType !== "text" && incoming.messageType !== "interactive") {
     createHumanTask({ patientId, conversationId, type: "DOCTOR_REVIEW", priority: "HIGH", title: `${incoming.messageType} needs staff review`, reason: "Patient media must not be automatically diagnosed.", suggestedReply: "Thank you for sharing this. A member of the clinical team will review it; we cannot assess or diagnose it automatically." });
     addMessage({ patientId, conversationId, direction: "outbound", senderType: "ai", content: "Thank you for sharing this. I’m forwarding it for staff review. Images and documents are not assessed or diagnosed automatically." });
     addEvent(patientId, conversationId, "MEDIA_RECEIVED", "Patient media queued for review", incoming.messageType);
-    return { patientId, mode: "human_review", replied: true };
+    return finish({ patientId, mode: "human_review", replied: true });
   }
 
   updatePatient(patientId, { lastInboundAt: nowIso(), serviceWindowExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
-  return { patientId, ...(await processPatientMessage(patientId, incoming.text, { inboundAlreadyStored: true, externalMessageId: incoming.externalMessageId })) };
+  return finish({ patientId, ...(await processPatientMessage(patientId, incoming.text, { inboundAlreadyStored: true, externalMessageId: incoming.externalMessageId })) });
 }

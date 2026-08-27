@@ -79,12 +79,12 @@ describe("primary end-to-end demo pipeline", () => {
     expect(context.patient.leadStage).toBe("booked");
   });
 
-  it("executes a due reminder exactly once", () => {
+  it("executes a due reminder exactly once", async () => {
     const db = getSqlite();
     const job = db.prepare("SELECT id FROM scheduled_jobs WHERE patient_id='pat_rahul' AND status='pending' ORDER BY scheduled_for LIMIT 1").get() as { id: string };
     db.prepare("UPDATE scheduled_jobs SET scheduled_for=? WHERE id=?").run(new Date(Date.now() - 1000).toISOString(), job.id);
-    expect(processDueJobsOnce().completed).toBe(1);
-    expect(processDueJobsOnce().completed).toBe(0);
+    expect((await processDueJobsOnce()).completed).toBe(1);
+    expect((await processDueJobsOnce()).completed).toBe(0);
     const messages = db.prepare("SELECT COUNT(*) AS count FROM messages WHERE metadata_json LIKE ?").get(`%${job.id}%`) as { count: number };
     expect(messages.count).toBe(1);
   });

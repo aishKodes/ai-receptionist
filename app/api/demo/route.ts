@@ -38,14 +38,14 @@ export async function POST(request: NextRequest) {
       const appointment = context.appointment;
       const db = getSqlite();
       db.prepare("INSERT INTO scheduled_jobs (id,patient_id,conversation_id,appointment_id,job_type,scheduled_for,status,payload_json,created_at) VALUES (?,?,?,?,? ,?,'pending',?,?)").run(makeId("job"), patientId, conversationId, appointment?.id ?? null, "APPOINTMENT_REMINDER_1", nowIso(), JSON.stringify({ appointmentTime: appointment?.dateTime }), nowIso());
-      processDueJobsOnce();
+      await processDueJobsOnce();
     } else if (action === "no_show") {
       getSqlite().prepare("UPDATE appointments SET status='no_show',updated_at=? WHERE patient_id=? AND status='confirmed'").run(nowIso(), patientId);
       updatePatient(patientId, { leadStage: "follow_up" });
       addEvent(patientId, conversationId, "APPOINTMENT_NO_SHOW", "Appointment marked no-show", "Recovery is ready to trigger.");
     } else if (action === "no_show_recovery") {
       getSqlite().prepare("INSERT INTO scheduled_jobs (id,patient_id,conversation_id,appointment_id,job_type,scheduled_for,status,payload_json,created_at) VALUES (?,?,?,?,? ,?,'pending','{}',?)").run(makeId("job"), patientId, conversationId, context.appointment?.id ?? null, "NO_SHOW_RECOVERY", nowIso(), nowIso());
-      processDueJobsOnce();
+      await processDueJobsOnce();
     } else if (action === "escalation") {
       updatePatient(patientId, { aiEnabled: false, assignedTo: "Front Desk", leadStage: "human_required" });
       getSqlite().prepare("UPDATE conversations SET ai_enabled=0 WHERE id=?").run(conversationId);

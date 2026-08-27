@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getSqlite } from "@/db";
 import { addAudit, addEvent, addMessage, getPatientContext, setAiMode, updateHumanTask } from "@/lib/services/repository";
 import { enforceRateLimit, enforceSameOrigin } from "@/lib/security/http";
+import { deliverStoredMessage } from "@/lib/channels/delivery";
 
 const Schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("task"), taskId: z.string(), status: z.enum(["OPEN", "ASSIGNED", "CONTACTED", "SNOOZED", "RESOLVED"]), assignedTo: z.string().max(100).optional(), resolution: z.string().max(500).optional() }),
@@ -23,7 +24,9 @@ export async function POST(request: NextRequest) {
     if (input.action === "takeover") setAiMode(input.patientId, !input.enabled, "RECEPTION");
     if (input.action === "send") {
       const context = getPatientContext(input.patientId); if (!context) throw new Error("Patient not found.");
-      addMessage({ patientId: input.patientId, conversationId: String(context.conversation.id), direction: "outbound", senderType: "human", content: input.text });
+      const message = addMessage({ patientId: input.patientId, conversationId: String(context.conversation.id), direction: "outbound", senderType: "human", content: input.text });
+      const delivery = await deliverStoredMessage(message.id);
+      if (!delivery.ok) throw new Error(delivery.error || "WhatsApp delivery failed.");
       addEvent(input.patientId, String(context.conversation.id), "HUMAN_REPLY_SENT", "Receptionist replied", "A staff reply was sent.");
       addAudit("HUMAN_REPLY_SENT", "conversation", String(context.conversation.id), "Receptionist sent a reply", "RECEPTION", { patientId: input.patientId });
       if (input.taskId) updateHumanTask(input.taskId, "CONTACTED");
