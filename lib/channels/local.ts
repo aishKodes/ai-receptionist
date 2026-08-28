@@ -1,12 +1,9 @@
 import type { MessageChannel } from "./channel";
 
-export class LocalDemoChannel implements MessageChannel {
-  name: MessageChannel["name"] = "local_demo";
+/** Safe development/test sink. It never performs external delivery. */
+export class LocalCaptureChannel implements MessageChannel {
+  name: MessageChannel["name"] = "local";
   async sendText() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
   async sendContent() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
   async sendTemplate() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
-}
-
-export class MockMetaChannel extends LocalDemoChannel {
-  name: MessageChannel["name"] = "mock_meta";
 }

@@ -2,21 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, Bot, CalendarPlus, CircleAlert, FileText, Flame, Info, MoreHorizontal, Search, Send, Sparkles, UserRound, Video } from "lucide-react";
-import { toast } from "sonner";
+import { Activity, Bot, CalendarPlus, CircleAlert, FileText, Flame, Info, MoreHorizontal, Search, Sparkles, UserRound, Video } from "lucide-react";
 import { AppShell, PageLoader } from "@/components/app-shell";
 import { Avatar, dateTime, MessageBubble, relativeDate, StatusBadge, titleCase } from "@/components/shared";
 import { useRadianceState } from "@/components/use-radiance-state";
 
 const filters = ["All", "Unread", "Hot Leads", "AI Active", "Human"] as const;
 
-export function InboxView({ initialPatientId = "pat_rahul" }: { initialPatientId?: string }) {
+export function InboxView({ initialPatientId = "" }: { initialPatientId?: string }) {
   const [patientId, setPatientId] = useState(initialPatientId);
   const [filter, setFilter] = useState<(typeof filters)[number]>("All");
   const [search, setSearch] = useState("");
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const { data, error, refresh } = useRadianceState(patientId);
+  const { data, error } = useRadianceState(patientId);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const messageCount = data?.selected?.messages.length || 0;
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messageCount, patientId]);
@@ -29,35 +26,21 @@ export function InboxView({ initialPatientId = "pat_rahul" }: { initialPatientId
   const selected = data?.selected;
   const patient = selected?.patient;
 
-  async function setMode(mode: "ai" | "human") {
-    if (!patient) return;
-    const response = await fetch("/api/handoff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: patient.id, mode }) });
-    if (response.ok) { toast.success(mode === "human" ? "Human mode active — AI replies paused" : "AI reception resumed with full context"); refresh(); }
-  }
-  async function sendHuman() {
-    if (!patient || !draft.trim() || sending) return;
-    if (patient.aiEnabled) { toast.info("Take over the conversation before replying as reception."); return; }
-    setSending(true);
-    const content = draft.trim(); setDraft("");
-    const response = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: patient.id, content, senderType: "human" }) });
-    setSending(false); if (!response.ok) toast.error("Message could not be sent"); else refresh();
-  }
-
   return <AppShell>{!data ? <PageLoader/> : <div className="inbox-shell">
     <section className="conversation-list-panel">
       <header className="inbox-brand"><div><span className="eyebrow">24/7 patient reception</span><h1>Inbox</h1></div><button className="icon-button" aria-label="Inbox options"><MoreHorizontal size={20}/></button></header>
       <label className="search-field"><Search size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations"/></label>
       <div className="filter-strip">{filters.map((item) => <button key={item} onClick={() => setFilter(item)} className={filter === item ? "active" : ""}>{item}</button>)}</div>
       <div className="conversation-list">{patients.map((item) => <button className={`conversation-card ${patientId === item.id ? "selected" : ""}`} key={item.id} onClick={() => setPatientId(item.id)}>
-        <Avatar patient={item}/><div className="conversation-copy"><div className="conversation-line"><strong>{item.name}</strong><time>{relativeDate(item.lastMessageAt)}</time></div><div className="conversation-line"><p>{item.lastMessage || "Ready for a new demo conversation"}</p>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</div><div className="conversation-tags"><StatusBadge value={item.treatmentSlug || "New enquiry"}/><span className={`temperature-label ${item.leadTemperature.toLowerCase()}`}>{item.leadTemperature === "HOT" && <Flame size={11}/>} {item.leadTemperature}</span></div></div>
+        <Avatar patient={item}/><div className="conversation-copy"><div className="conversation-line"><strong>{item.name}</strong><time>{relativeDate(item.lastMessageAt)}</time></div><div className="conversation-line"><p>{item.lastMessage || "No messages yet"}</p>{item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}</div><div className="conversation-tags"><StatusBadge value={item.treatmentSlug || "New enquiry"}/><span className={`temperature-label ${item.leadTemperature.toLowerCase()}`}>{item.leadTemperature === "HOT" && <Flame size={11}/>} {item.leadTemperature}</span></div></div>
       </button>)}{patients.length === 0 && <div className="empty-list"><Search size={22}/><strong>No conversations found</strong><span>Try a different filter or search.</span></div>}</div>
     </section>
     {selected && patient ? <>
       <section className="chat-panel">
         <header className="chat-header"><div className="patient-heading"><Avatar patient={patient}/><div><strong>{patient.name}</strong><span>{titleCase(patient.treatmentSlug)} · {patient.phone}</span></div></div><div className={`mode-badge ${patient.aiEnabled ? "ai" : "human"}`}>{patient.aiEnabled ? <Bot size={15}/> : <UserRound size={15}/>} {patient.aiEnabled ? "AI Active" : "Human Mode"}</div></header>
         <div className="chat-context-bar"><Info size={14}/><span>Radiance Clinics · Bhubaneswar</span><span className="context-separator"/> <span>Conversation context is saved to CRM</span></div>
-        <div className="message-stream"><div className="day-divider"><span>Today</span></div>{selected.messages.length ? selected.messages.map((message) => <MessageBubble key={message.id} message={message}/>) : <div className="conversation-empty"><div className="empty-spark"><Sparkles size={24}/></div><h3>Ready for the primary demo</h3><p>Open the patient simulator and send Rahul’s first message. Understanding, CRM updates and content selection will appear here live.</p><Link href="/demo/patient" className="text-button">Open patient simulator</Link></div>}<div ref={messagesEnd}/></div>
-        <div className="composer-wrap">{patient.aiEnabled && <div className="ai-composer-note"><Bot size={14}/> AI is handling this conversation. Take over to reply personally.</div>}<div className="composer"><button aria-label="Add note" className="icon-button"><FileText size={19}/></button><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendHuman(); }}} placeholder={patient.aiEnabled ? "Take over to reply as Radiance reception" : "Reply as Radiance reception…"} rows={1}/><button className="send-button" disabled={!draft.trim() || sending || Boolean(patient.aiEnabled)} onClick={sendHuman} aria-label="Send message"><Send size={18}/></button></div></div>
+        <div className="message-stream"><div className="day-divider"><span>Today</span></div>{selected.messages.length ? selected.messages.map((message) => <MessageBubble key={message.id} message={message}/>) : <div className="conversation-empty"><div className="empty-spark"><Sparkles size={24}/></div><h3>No messages yet</h3><p>New WhatsApp patient messages will appear here automatically.</p></div>}<div ref={messagesEnd}/></div>
+        <div className="composer-wrap"><div className="ai-composer-note"><Info size={14}/>This inbox is read-only. Receptionists reply from the official WhatsApp Business app; their replies appear here automatically and pause AI for the human-lock window.</div></div>
       </section>
       <aside className="intelligence-panel">
         <div className="intel-scroll">
@@ -70,7 +53,7 @@ export function InboxView({ initialPatientId = "pat_rahul" }: { initialPatientId
           <div className="intel-section"><span className="section-label">CONTENT SENT</span>{selected.sentContent.length ? selected.sentContent.map((item) => <div className="mini-content" key={item.id}>{item.type === "youtube" ? <Video size={15}/> : <FileText size={15}/>}<span>{item.title}</span></div>) : <p className="muted">No content sent yet.</p>}</div>
           <div className="activity-feed"><div className="section-title"><Activity size={16}/><span>Live AI Activity</span><span className="live-dot">LIVE</span></div>{selected.events.slice(0, 10).map((event) => <div className="activity-item" key={event.id}><span className="event-dot"/><div><strong>{event.title}</strong>{event.details && <p>{event.details}</p>}<time>{new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(event.createdAt))}</time></div></div>)}{!selected.events.length && <p className="muted">Waiting for live activity…</p>}</div>
         </div>
-        <div className="intel-actions"><button className={patient.aiEnabled ? "primary-button" : "secondary-button"} onClick={() => setMode(patient.aiEnabled ? "human" : "ai")}>{patient.aiEnabled ? <UserRound size={16}/> : <Bot size={16}/>} {patient.aiEnabled ? "Take Over" : "Return to AI"}</button><Link href="/appointments" className="secondary-button"><CalendarPlus size={16}/>Book</Link></div>
+        <div className="intel-actions"><Link href={`/leads/${patient.id}`} className="secondary-button"><UserRound size={16}/>Open Patient</Link><Link href="/appointments" className="secondary-button"><CalendarPlus size={16}/>Book</Link></div>
       </aside>
     </> : <div className="empty-state">Select a conversation</div>}
     {error && <div className="connection-warning"><CircleAlert size={16}/>{error}</div>}

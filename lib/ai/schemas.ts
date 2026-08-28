@@ -61,7 +61,7 @@ export const IncomingMessageSchema = z.object({
 });
 
 export const NormalizedInboundSchema = z.object({
-  channel: z.enum(["local", "whatsapp", "mock_meta"]),
+  channel: z.enum(["local", "whatsapp"]),
   patientId: z.string().min(1).optional(),
   externalMessageId: z.string().max(200).optional(),
   from: z.string().min(8).max(30).optional(),

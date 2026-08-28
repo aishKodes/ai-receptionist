@@ -40,10 +40,10 @@ export function MessageBubble({ message, patientView = false }: { message: Messa
   const isPatient = message.senderType === "patient";
   const own = patientView ? isPatient : !isPatient;
   if (["youtube", "website", "before_after", "faq", "instruction"].includes(message.messageType)) {
-    const verifiedRadiance = meta.verifiedRadiance === true;
+    const approvedForProduction = meta.approvedForProduction === true;
     return <div className={`message-row ${own ? "own" : ""}`}><div className="content-message-card">
-      <div className={`content-art type-${message.messageType}`}>{contentIcon(message.messageType)}<span>{verifiedRadiance ? "OFFICIAL RADIANCE VIDEO" : "DEMO CONTENT"}</span></div>
-      <div className="content-card-body"><span className="message-sender"><Bot size={13}/>Recommended for you</span><strong>{String(meta.title || "Radiance patient guide")}</strong><p>{message.content}</p>{message.mediaUrl && <a href={message.mediaUrl} target="_blank" rel="noreferrer">{verifiedRadiance ? "Watch on YouTube" : "Open demo resource"} <ExternalLink size={13}/></a>}</div>
+      <div className={`content-art type-${message.messageType}`}>{contentIcon(message.messageType)}<span>{approvedForProduction ? "APPROVED RADIANCE CONTENT" : "CONTENT REVIEW REQUIRED"}</span></div>
+      <div className="content-card-body"><span className="message-sender"><Bot size={13}/>Recommended for you</span><strong>{String(meta.title || "Radiance patient guide")}</strong><p>{message.content}</p>{message.mediaUrl && <a href={message.mediaUrl} target="_blank" rel="noreferrer">Open approved resource <ExternalLink size={13}/></a>}</div>
       <time>{shortTime(message.createdAt)}</time>
     </div></div>;
   }

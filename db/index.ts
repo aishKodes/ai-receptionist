@@ -3,11 +3,12 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
 import * as schema from "./schema";
+import { MysqlSyncDatabase, type OperationalDatabase } from "./mysql-sync";
 
 const dataDir = path.join(process.cwd(), "data");
 export const databasePath = process.env.RADIANCE_DB_PATH || path.join(dataDir, "radiance.db");
 
-type GlobalWithDb = typeof globalThis & { __radianceSqlite?: Database.Database };
+type GlobalWithDb = typeof globalThis & { __radianceSqlite?: Database.Database; __radianceMysql?: MysqlSyncDatabase };
 
 export function getSqlite() {
   const root = globalThis as GlobalWithDb;
@@ -23,6 +24,13 @@ export function getSqlite() {
 
 export function getDb() {
   return drizzle(getSqlite(), { schema });
+}
+
+export function getDatabase(): OperationalDatabase {
+  if (process.env.DATABASE_PROVIDER !== "mysql") return getSqlite() as unknown as OperationalDatabase;
+  const root = globalThis as GlobalWithDb;
+  if (!root.__radianceMysql) root.__radianceMysql = new MysqlSyncDatabase();
+  return root.__radianceMysql;
 }
 
 export const nowIso = () => new Date().toISOString();

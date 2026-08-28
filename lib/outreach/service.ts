@@ -1,4 +1,4 @@
-import { getSqlite, makeId, nowIso } from "@/db";
+import { getDatabase, makeId, nowIso } from "@/db";
 import { getMessageChannel } from "@/lib/channels";
 import { addAudit, addEvent, addMessage, getPatientContext } from "@/lib/services/repository";
 
@@ -15,10 +15,10 @@ export function outreachEligibility(patient: { whatsappOptInStatus?: unknown; do
 }
 
 export function getOutreachOverview() {
-  const db = getSqlite();
-  const campaigns = db.prepare("SELECT c.id,c.name,c.status,c.audience_json AS audienceJson,c.scheduled_for AS scheduledFor,c.rate_per_minute AS ratePerMinute,c.created_by AS createdBy,c.created_at AS createdAt,c.updated_at AS updatedAt,t.id AS templateId,t.name AS templateName,t.status AS templateStatus,COUNT(o.id) AS total,SUM(CASE WHEN o.status='QUEUED' THEN 1 ELSE 0 END) AS queued,SUM(CASE WHEN o.status IN ('SENT','DELIVERED','READ','REPLIED') THEN 1 ELSE 0 END) AS sent,SUM(CASE WHEN o.status='DELIVERED' THEN 1 ELSE 0 END) AS delivered,SUM(CASE WHEN o.status='READ' THEN 1 ELSE 0 END) AS read,SUM(CASE WHEN o.status='REPLIED' THEN 1 ELSE 0 END) AS replied,SUM(CASE WHEN o.status='FAILED' THEN 1 ELSE 0 END) AS failed FROM campaigns c JOIN message_templates t ON t.id=c.template_id LEFT JOIN outbound_messages o ON o.campaign_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all();
+  const db = getDatabase();
+  const campaigns = db.prepare("SELECT c.id,c.name,c.status,c.audience_json AS audienceJson,c.scheduled_for AS scheduledFor,c.rate_per_minute AS ratePerMinute,c.created_by AS createdBy,c.created_at AS createdAt,c.updated_at AS updatedAt,t.id AS templateId,t.name AS templateName,t.status AS templateStatus,COUNT(o.id) AS total,SUM(CASE WHEN o.status='QUEUED' THEN 1 ELSE 0 END) AS queued,SUM(CASE WHEN o.status IN ('SENT','DELIVERED','READ','REPLIED') THEN 1 ELSE 0 END) AS sent,SUM(CASE WHEN o.status='DELIVERED' THEN 1 ELSE 0 END) AS delivered,SUM(CASE WHEN o.status='READ' THEN 1 ELSE 0 END) AS `read`,SUM(CASE WHEN o.status='REPLIED' THEN 1 ELSE 0 END) AS replied,SUM(CASE WHEN o.status='FAILED' THEN 1 ELSE 0 END) AS failed FROM campaigns c JOIN message_templates t ON t.id=c.template_id LEFT JOIN outbound_messages o ON o.campaign_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all();
   const templates = db.prepare("SELECT id,name,COALESCE(display_name,name) AS displayName,category,language,body,meta_template_name AS metaTemplateName,status,variables_json AS variablesJson,purpose,treatment_slug AS treatmentSlug,active,last_synced_at AS lastSyncedAt,created_at AS createdAt,updated_at AS updatedAt FROM message_templates WHERE active=1 ORDER BY name").all();
-  const patients = db.prepare("SELECT p.id,p.name,p.phone,p.whatsapp_opt_in_status AS whatsappOptInStatus,p.do_not_contact AS doNotContact,p.invalid_phone AS invalidPhone,c.id AS conversationId FROM patients p JOIN conversations c ON c.patient_id=p.id GROUP BY p.id ORDER BY p.name").all() as EligiblePatient[];
+  const patients = db.prepare("SELECT p.id,p.name,p.phone,p.whatsapp_opt_in_status AS whatsappOptInStatus,p.do_not_contact AS doNotContact,p.invalid_phone AS invalidPhone,c.id AS conversationId FROM patients p JOIN conversations c ON c.id=(SELECT c2.id FROM conversations c2 WHERE c2.patient_id=p.id ORDER BY c2.last_message_at DESC LIMIT 1) ORDER BY p.name").all() as EligiblePatient[];
   const eligibility = { eligible: 0, consentUnknown: 0, optedOut: 0, invalid: 0 };
   patients.forEach((patient) => {
     const result = outreachEligibility(patient);
@@ -31,7 +31,7 @@ export function getOutreachOverview() {
 }
 
 export function createCampaign(args: { name: string; templateId: string; audience?: Record<string, unknown>; scheduledFor?: string | null }) {
-  const db = getSqlite();
+  const db = getDatabase();
   const template = db.prepare("SELECT id FROM message_templates WHERE id=?").get(args.templateId);
   if (!template) throw new Error("Select a valid message template.");
   const now = nowIso(), id = makeId("campaign");
@@ -45,13 +45,13 @@ function renderTemplate(body: string, patient: { name: string }) {
 }
 
 export function startCampaign(campaignId: string) {
-  const db = getSqlite();
+  const db = getDatabase();
   const campaign = db.prepare("SELECT c.id,c.status,c.template_id AS templateId,c.scheduled_for AS scheduledFor,t.body,t.status AS templateStatus,t.meta_template_name AS metaTemplateName FROM campaigns c JOIN message_templates t ON t.id=c.template_id WHERE c.id=?").get(campaignId) as { id: string; status: string; templateId: string; scheduledFor: string | null; body: string; templateStatus: string; metaTemplateName: string | null } | undefined;
   if (!campaign) throw new Error("Campaign not found.");
   if (!["DRAFT", "READY", "PAUSED"].includes(campaign.status)) throw new Error("Campaign cannot be started from its current status.");
   const channel = getMessageChannel();
   if (channel.name === "whatsapp" && campaign.templateStatus !== "APPROVED") throw new Error("WhatsApp campaigns require a Meta-approved template.");
-  const patients = db.prepare("SELECT p.id,p.name,p.phone,p.whatsapp_opt_in_status AS whatsappOptInStatus,p.do_not_contact AS doNotContact,p.invalid_phone AS invalidPhone,c.id AS conversationId FROM patients p JOIN conversations c ON c.patient_id=p.id GROUP BY p.id").all() as EligiblePatient[];
+  const patients = db.prepare("SELECT p.id,p.name,p.phone,p.whatsapp_opt_in_status AS whatsappOptInStatus,p.do_not_contact AS doNotContact,p.invalid_phone AS invalidPhone,c.id AS conversationId FROM patients p JOIN conversations c ON c.id=(SELECT c2.id FROM conversations c2 WHERE c2.patient_id=p.id ORDER BY c2.last_message_at DESC LIMIT 1)").all() as EligiblePatient[];
   let queued = 0;
   db.transaction(() => {
     for (const patient of patients) {
@@ -68,7 +68,7 @@ export function startCampaign(campaignId: string) {
 }
 
 export function setCampaignStatus(campaignId: string, status: "PAUSED" | "CANCELLED") {
-  const db = getSqlite();
+  const db = getDatabase();
   db.transaction(() => {
     const result = db.prepare("UPDATE campaigns SET status=?,updated_at=? WHERE id=? AND status NOT IN ('COMPLETED','CANCELLED')").run(status, nowIso(), campaignId);
     if (!result.changes) throw new Error("Campaign is already complete or unavailable.");
@@ -78,7 +78,7 @@ export function setCampaignStatus(campaignId: string, status: "PAUSED" | "CANCEL
 }
 
 export async function sendCampaignTest(campaignId: string, patientId: string) {
-  const db = getSqlite();
+  const db = getDatabase();
   const campaign = db.prepare("SELECT c.id,c.template_id AS templateId,t.body,t.status AS templateStatus,t.meta_template_name AS metaTemplateName,t.language FROM campaigns c JOIN message_templates t ON t.id=c.template_id WHERE c.id=?").get(campaignId) as { id: string; templateId: string; body: string; templateStatus: string; metaTemplateName: string | null; language: string } | undefined;
   const context = getPatientContext(patientId);
   if (!campaign || !context) throw new Error("Campaign or test patient not found.");
@@ -92,7 +92,7 @@ export async function sendCampaignTest(campaignId: string, patientId: string) {
 }
 
 export async function processOutboundOnce(limit = Number(process.env.OUTREACH_MESSAGES_PER_MINUTE || 5)) {
-  const db = getSqlite();
+  const db = getDatabase();
   const due = db.prepare("SELECT o.id,o.campaign_id AS campaignId,o.patient_id AS patientId,o.conversation_id AS conversationId,o.rendered_body AS renderedBody,o.template_id AS templateId,p.name,p.phone,p.whatsapp_opt_in_status AS whatsappOptInStatus,p.do_not_contact AS doNotContact,p.invalid_phone AS invalidPhone,c.status AS campaignStatus,t.status AS templateStatus,t.meta_template_name AS metaTemplateName,t.language FROM outbound_messages o JOIN patients p ON p.id=o.patient_id JOIN campaigns c ON c.id=o.campaign_id JOIN message_templates t ON t.id=o.template_id WHERE o.status='QUEUED' AND o.scheduled_for<=? ORDER BY o.scheduled_for LIMIT ?").all(nowIso(), Math.max(1, Math.min(60, limit))) as Array<Record<string, unknown>>;
   let sent = 0;
   for (const item of due) {

@@ -1,4 +1,4 @@
-import { getSqlite } from "@/db";
+import { getDatabase } from "@/db";
 import { addAudit } from "@/lib/services/repository";
 import { RealWhatsAppCloudChannel } from "./whatsapp-cloud";
 
@@ -24,7 +24,7 @@ export type DeliveryResult = {
 };
 
 function storedOutboundMessage(messageId: string) {
-  return getSqlite().prepare(`
+  return getDatabase().prepare(`
     SELECT m.id,m.conversation_id AS conversationId,m.patient_id AS patientId,
       c.channel,p.phone,p.whatsapp_id AS whatsappId,
       p.service_window_expires_at AS serviceWindowExpiresAt,
@@ -37,7 +37,7 @@ function storedOutboundMessage(messageId: string) {
 }
 
 export async function deliverStoredMessage(messageId: string, channelOverride?: string): Promise<DeliveryResult> {
-  const db = getSqlite();
+  const db = getDatabase();
   const message = storedOutboundMessage(messageId);
   if (!message) return { ok: false, status: "missing", error: "Outbound message was not found." };
   if (message.externalMessageId) return { ok: true, skipped: true, externalMessageId: message.externalMessageId, status: "already_sent" };
@@ -70,17 +70,20 @@ export async function deliverStoredMessage(messageId: string, channelOverride?: 
   }
 }
 
-export async function deliverConversationRepliesAfter(conversationId: string, afterRowId: number, channelOverride?: string) {
-  const rows = getSqlite().prepare(`
+export async function deliverConversationRepliesAfter(conversationId: string, cursor: { id: string; createdAt: string }, channelOverride?: string) {
+  const rows = getDatabase().prepare(`
     SELECT id FROM messages
-    WHERE conversation_id=? AND direction='outbound' AND rowid>?
-    ORDER BY rowid ASC
-  `).all(conversationId, afterRowId) as Array<{ id: string }>;
+    WHERE conversation_id=? AND direction='outbound'
+      AND (created_at>? OR (created_at=? AND id<>?))
+    ORDER BY created_at ASC,id ASC
+  `).all(conversationId, cursor.createdAt, cursor.createdAt, cursor.id) as Array<{ id: string }>;
   const deliveries: DeliveryResult[] = [];
   for (const row of rows) deliveries.push(await deliverStoredMessage(row.id, channelOverride));
   return deliveries;
 }
 
-export function messageRowId(messageId: string) {
-  return Number((getSqlite().prepare("SELECT rowid FROM messages WHERE id=?").get(messageId) as { rowid?: number } | undefined)?.rowid || 0);
+export function messageCursor(messageId: string) {
+  const row = getDatabase().prepare("SELECT id,created_at AS createdAt FROM messages WHERE id=?").get(messageId) as { id: string; createdAt: string } | undefined;
+  if (!row) throw new Error("Message delivery cursor was not found.");
+  return row;
 }

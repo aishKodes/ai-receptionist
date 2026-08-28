@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       addEvent(input.patientId, conversationId, "APPOINTMENT_CHANGED", `Appointment ${status.replace("_", " ")}`, "Updated by reception.");
       addAudit("APPOINTMENT_CHANGED", "appointment", input.appointmentId, `Appointment ${status.replace("_", " ")}`, "RECEPTION", { patientId: input.patientId });
       if (status === "cancel") {
-        const message = addMessage({ patientId: input.patientId, conversationId, direction: "outbound", senderType: "human", messageType: "system", content: "Your consultation has been cancelled. Message us whenever you would like help finding another time." });
+        const message = addMessage({ patientId: input.patientId, conversationId, direction: "outbound", senderType: "automation", messageType: "system", content: "Your consultation has been cancelled. Message us whenever you would like help finding another time." });
         const delivery = await deliverStoredMessage(message.id);
         if (!delivery.ok) throw new Error(delivery.error || "WhatsApp delivery failed.");
       }
@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
     const appointment = input.action === "reschedule" && input.appointmentId ? rescheduleAppointment(input.appointmentId, input.date, input.time) : bookAppointment(input.patientId, conversationId, String(context.patient.treatmentSlug || "general_skin"), input.date, input.time);
     const schedule = input.action === "reschedule" ? { firstSeconds: 0, secondSeconds: 0 } : scheduleAppointmentJobs(appointment);
     const copy = `Your consultation at Radiance Clinics, Bhubaneswar is confirmed for ${timeLabel(appointment.dateTime)}.`;
-    const message = addMessage({ patientId: input.patientId, conversationId, direction: "outbound", senderType: "human", messageType: "appointment", content: copy, metadata: { appointmentId: appointment.id, dateTime: appointment.dateTime, status: "confirmed" } });
+    const message = addMessage({ patientId: input.patientId, conversationId, direction: "outbound", senderType: "automation", messageType: "appointment", content: copy, metadata: { appointmentId: appointment.id, dateTime: appointment.dateTime, status: "confirmed" } });
     const delivery = await deliverStoredMessage(message.id);
     if (!delivery.ok) throw new Error(delivery.error || "WhatsApp delivery failed.");
     addEvent(input.patientId, conversationId, input.action === "reschedule" ? "APPOINTMENT_CHANGED" : "APPOINTMENT_CREATED", input.action === "reschedule" ? "Appointment rescheduled" : "Appointment confirmed", timeLabel(appointment.dateTime));
-    addEvent(input.patientId, conversationId, "FOLLOWUP_SCHEDULED", "Reminders scheduled", `Demo reminders in ${schedule.firstSeconds}s and ${schedule.secondSeconds}s.`);
+    addEvent(input.patientId, conversationId, "FOLLOWUP_SCHEDULED", "Reminders scheduled", `Reminder offsets: ${schedule.firstSeconds}s and ${schedule.secondSeconds}s.`);
     return NextResponse.json({ ok: true, appointment });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Appointment action failed" }, { status: 400 }); }
 }

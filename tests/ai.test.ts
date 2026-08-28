@@ -43,16 +43,19 @@ describe("Radiance reception intelligence", () => {
   });
 });
 
-describe("primary end-to-end demo pipeline", () => {
+describe("primary end-to-end production pipeline", () => {
   it("captures CRM fields, safely answers price, offers slots and books", async () => {
     await processPatientMessage("pat_rahul", "Hi, I'm 29 and my hair has become very thin from the front for almost 3 years. I'm thinking about hair transplant.");
     let context = getPatientContext("pat_rahul")!;
     expect(context.patient.age).toBe(29);
     expect(context.patient.treatmentSlug).toBe("hair_transplant");
     expect(Number(context.patient.leadScore)).toBeGreaterThanOrEqual(70);
+    expect(context.messages.some((message) => message.contentItemId)).toBe(false);
+    await processPatientMessage("pat_rahul", "Can you share a hair transplant video guide?");
+    context = getPatientContext("pat_rahul")!;
     const recommended = context.messages.find((message) => message.contentItemId);
     expect(recommended?.mediaUrl).toBe("https://www.youtube.com/watch?v=8qYMw935MF8");
-    expect(JSON.parse(String(recommended?.metadataJson))).toMatchObject({ verifiedRadiance: true, demo: false });
+    expect(JSON.parse(String(recommended?.metadataJson))).toMatchObject({ approvedForProduction: true });
 
     await processPatientMessage("pat_rahul", "How much does it cost?");
     context = getPatientContext("pat_rahul")!;

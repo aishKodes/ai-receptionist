@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, BarChart3, Bot, CalendarDays, ChevronRight, FlaskConical, Inbox, Library, Megaphone, PhoneCall, Settings, Sparkles, Upload, Users } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, ChevronRight, Inbox, Library, LogOut, Megaphone, PhoneCall, Settings, Sparkles, Upload, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
 
 const nav = [
   ["/inbox", "Inbox", Inbox], ["/leads", "Leads", Users], ["/human", "Human Attention", PhoneCall], ["/appointments", "Appointments", CalendarDays],
   ["/outreach", "Outreach", Megaphone], ["/automations", "Automations", Activity], ["/content", "Content", Library], ["/analytics", "Analytics", BarChart3],
-  ["/leads/import", "Import Leads", Upload], ["/demo/scenario", "Demo", FlaskConical], ["/settings", "Settings", Settings],
+  ["/leads/import", "Import Leads", Upload], ["/settings", "Settings", Settings],
 ] as const;
 
 export function AppShell({ children, title, eyebrow, action }: { children: ReactNode; title?: string; eyebrow?: string; action?: ReactNode }) {
@@ -22,12 +22,11 @@ export function AppShell({ children, title, eyebrow, action }: { children: React
         return <Link className={`nav-link ${active ? "active" : ""}`} href={href} key={href}><Icon size={18} strokeWidth={1.9}/><span>{label}</span>{active && <ChevronRight className="nav-chevron" size={14}/>}</Link>;
       })}</nav>
       <div className="nav-bottom">
-        <div className="system-status"><span className="pulse-dot"/><div><strong>AI Online</strong><small>Local systems healthy</small></div></div>
-        <div className="demo-pill"><Bot size={14}/>Demo Mode</div>
+        <div className="system-status"><span className="pulse-dot"/><div><strong>Clinic systems</strong><small>Production operations</small></div></div>
+        <form action="/api/auth/logout" method="post"><button className="nav-logout" type="submit"><LogOut size={14}/>Logout</button></form>
       </div>
     </aside>
     <main className="app-main">
-      {pathname !== "/inbox" && <div className="demo-banner"><FlaskConical size={14}/><strong>DEMO MODE</strong><span>Follow-up timings are compressed for presentation.</span></div>}
       {(title || eyebrow || action) && <header className="page-header"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h1>{title}</h1></div>{action}</header>}
       {children}
     </main>

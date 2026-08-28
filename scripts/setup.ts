@@ -1,10 +1,10 @@
 import "dotenv/config";
-import { ensureDataDirectory, seedDatabase } from "@/lib/db/setup";
+import { createSchema, ensureDataDirectory, seedDatabase } from "@/lib/db/setup";
 import { databasePath } from "@/db";
 
 ensureDataDirectory();
-const reset = process.argv.includes("--reset");
-const noSeed = process.argv.includes("--no-seed");
-const result = noSeed ? (await import("@/lib/db/setup")).createSchema() : seedDatabase(reset);
+const seedTest = process.argv.includes("--seed-test") && process.env.RADIANCE_ALLOW_FIXTURES === "true";
+const reset = process.argv.includes("--reset-test") && seedTest;
+const result = seedTest ? seedDatabase(reset) : createSchema();
 console.log(`[SETUP] Database ready: ${databasePath}`);
-if (result) console.log(`[SETUP] Seed status: ${JSON.stringify(result)}`);
+if (result) console.log(`[SETUP] Test seed status: ${JSON.stringify(result)}`);

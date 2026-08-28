@@ -10,7 +10,7 @@ export type Patient = {
 export type Message = { id: string; conversationId: string; patientId: string; direction: string; senderType: string; messageType: string; content: string; mediaUrl?: string | null; contentItemId?: string | null; deliveryStatus: string; metadataJson?: string; createdAt: string };
 export type AIEvent = { id: string; patientId: string; conversationId?: string; eventType: string; title: string; details?: string; metadataJson?: string; createdAt: string; patientName?: string };
 export type Appointment = { id: string; patientId: string; conversationId: string; treatmentSlug?: string | null; dateTime: string; status: string; notes?: string; name?: string; phone?: string };
-export type ContentItem = { id: string; type: "youtube" | "website" | "before_after" | "faq" | "instruction"; title: string; description: string; url: string; thumbnailUrl?: string | null; treatmentSlug?: string | null; tagsJson?: string; tags?: string[]; whenToSend: string; priority: number; active: number | boolean; approvedForAi?: number | boolean; createdAt: string };
+export type ContentItem = { id: string; type: "youtube" | "website" | "before_after" | "faq" | "instruction"; title: string; description: string; url: string; thumbnailUrl?: string | null; treatmentSlug?: string | null; tagsJson?: string; tags?: string[]; whenToSend: string; priority: number; active: number | boolean; approvedForAi?: number | boolean; approvedForProduction?: number | boolean; createdAt: string };
 export type Job = { id: string; patientId: string; conversationId: string; appointmentId?: string | null; jobType: string; scheduledFor: string; status: string; createdAt: string; executedAt?: string | null; error?: string | null };
 
 export type DashboardState = {

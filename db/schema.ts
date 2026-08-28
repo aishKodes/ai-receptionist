@@ -8,6 +8,8 @@ const timestamps = {
 export const patients = sqliteTable("patients", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  nameSource: text("name_source").notNull().default("whatsapp_profile"),
+  nameVerified: integer("name_verified", { mode: "boolean" }).notNull().default(false),
   phone: text("phone").notNull().unique(),
   email: text("email"),
   age: integer("age"),
@@ -19,7 +21,7 @@ export const patients = sqliteTable("patients", {
   leadScore: integer("lead_score").notNull().default(10),
   leadTemperature: text("lead_temperature").notNull().default("COLD"),
   leadStage: text("lead_stage").notNull().default("new"),
-  source: text("source").notNull().default("demo"),
+  source: text("source").notNull().default("whatsapp"),
   campaign: text("campaign"),
   aiSummary: text("ai_summary"),
   assignedTo: text("assigned_to").default("AI Reception"),
@@ -41,7 +43,7 @@ export const patients = sqliteTable("patients", {
 export const conversations = sqliteTable("conversations", {
   id: text("id").primaryKey(),
   patientId: text("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
-  channel: text("channel").notNull().default("local_demo"),
+  channel: text("channel").notNull().default("whatsapp"),
   status: text("status").notNull().default("open"),
   unreadCount: integer("unread_count").notNull().default(0),
   aiEnabled: integer("ai_enabled", { mode: "boolean" }).notNull().default(true),
@@ -63,6 +65,31 @@ export const messages = sqliteTable("messages", {
   metadataJson: text("metadata_json"),
   externalMessageId: text("external_message_id"),
   createdAt: text("created_at").notNull(),
+});
+
+export const conversationState = sqliteTable("conversation_state", {
+  conversationId: text("conversation_id").primaryKey().references(() => conversations.id, { onDelete: "cascade" }),
+  preferredLanguage: text("preferred_language").notNull().default("AUTO"),
+  activeFlow: text("active_flow"),
+  pendingQuestion: text("pending_question"),
+  pendingAction: text("pending_action"),
+  lastAssistantQuestion: text("last_assistant_question"),
+  requestedDate: text("requested_date"),
+  requestedTime: text("requested_time"),
+  requestedDayPart: text("requested_day_part"),
+  offeredSlotsJson: text("offered_slots_json").notNull().default("[]"),
+  selectedSlot: text("selected_slot"),
+  appointmentId: text("appointment_id"),
+  currentConcern: text("current_concern"),
+  currentTreatment: text("current_treatment"),
+  previousTreatment: integer("previous_treatment", { mode: "boolean" }).notNull().default(false),
+  rollingSummary: text("rolling_summary"),
+  sentContentIdsJson: text("sent_content_ids_json").notNull().default("[]"),
+  lastContentSentAt: text("last_content_sent_at"),
+  aiMode: text("ai_mode").notNull().default("AI"),
+  humanLockUntil: text("human_lock_until"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });
 
 export const treatments = sqliteTable("treatments", {
@@ -89,6 +116,7 @@ export const contentItems = sqliteTable("content_items", {
   priority: integer("priority").notNull().default(1),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   approvedForAi: integer("approved_for_ai", { mode: "boolean" }).notNull().default(true),
+  approvedForProduction: integer("approved_for_production", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
 });
 
@@ -250,7 +278,7 @@ export const outboundMessages = sqliteTable("outbound_messages", {
   patientId: text("patient_id").notNull().references(() => patients.id, { onDelete: "cascade" }),
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
   templateId: text("template_id").references(() => messageTemplates.id, { onDelete: "set null" }),
-  channel: text("channel").notNull().default("local_demo"),
+  channel: text("channel").notNull().default("local"),
   renderedBody: text("rendered_body").notNull(),
   payloadJson: text("payload_json").notNull().default("{}"),
   status: text("status").notNull().default("QUEUED"),

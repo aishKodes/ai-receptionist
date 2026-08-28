@@ -11,11 +11,12 @@ export function buildMinimalReceptionInput(args: {
   recentMessages: Array<{ senderType: string; content: string }>;
   appointment?: Record<string, unknown> | null;
 }) {
-  const firstName = String(args.patient.name || "Patient").trim().split(/\s+/)[0].slice(0, 60);
+  const firstName = args.patient.nameVerified ? String(args.patient.name || "").trim().split(/\s+/)[0].slice(0, 60) : null;
   return {
     message: redact(args.message),
     patient: {
       firstName,
+      preferredLanguage: args.patient.preferredLanguage ?? "AUTO",
       age: args.patient.age ?? null,
       gender: args.patient.gender ?? null,
       knownConcern: args.patient.primaryConcern ?? null,

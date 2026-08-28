@@ -13,12 +13,15 @@ afterAll(() => {
   for (const suffix of ["", "-wal", "-shm"]) { try { fs.unlinkSync(`${databasePath}${suffix}`); } catch {} }
 });
 
-describe("complete local doctor demo", () => {
+describe("complete production reception workflow", () => {
   it("runs enquiry → CRM → safe price → booking → handoff → CSV outreach → returning lead", async () => {
     await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "Hi, I'm 29 and my hair has become very thin from the front for almost 3 years. I am thinking about hair transplant." });
     let rahul = getPatientContext("pat_rahul")!;
     expect(rahul.patient).toMatchObject({ age: 29, treatmentSlug: "hair_transplant" });
     expect(Number(rahul.patient.leadScore)).toBeGreaterThanOrEqual(70);
+    expect(rahul.messages.some((message) => message.contentItemId)).toBe(false);
+    await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "Please share a hair transplant video guide." });
+    rahul = getPatientContext("pat_rahul")!;
     expect(rahul.messages.some((message) => message.contentItemId)).toBe(true);
 
     await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "How much does it cost?" });

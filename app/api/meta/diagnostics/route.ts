@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getMessageChannel, RealWhatsAppCloudChannel } from "@/lib/channels";
 import { enforceRateLimit, enforceSameOrigin } from "@/lib/security/http";
-import { getSqlite, nowIso } from "@/db";
+import { getDatabase, nowIso } from "@/db";
+import { getSettings, setSettings } from "@/lib/services/repository";
 
 const ActionSchema = z.object({
   action: z.enum(["credentials", "waba", "phone_numbers", "templates", "check_webhook", "register_webhook", "send_test_template"]).default("credentials"),
@@ -11,6 +12,7 @@ const ActionSchema = z.object({
 
 type MetaError = { error?: { code?: number; message?: string } };
 type MetaTemplate = { name?: string; language?: string; category?: string; status?: string; components?: Array<{ type?: string; text?: string }> };
+type DebugTokenData = { is_valid?: boolean; type?: string; application?: string; expires_at?: number; data_access_expires_at?: number; scopes?: string[]; user_id?: string };
 
 function version() { return process.env.WHATSAPP_GRAPH_VERSION || process.env.WHATSAPP_API_VERSION || "v26.0"; }
 function wabaId() { return process.env.WHATSAPP_WABA_ID || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || ""; }
@@ -21,6 +23,7 @@ function publicWebhookUrl() {
 
 function state() {
   const recipient = (process.env.WHATSAPP_TEST_RECIPIENT || "").replace(/\D/g, "");
+  const settings = getSettings();
   return {
     channel: getMessageChannel().name,
     graphVersion: version(),
@@ -35,7 +38,29 @@ function state() {
     testRecipient: recipient ? `••••${recipient.slice(-4)}` : null,
     testTemplate: process.env.WHATSAPP_TEST_TEMPLATE || null,
     liveReady: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET && wabaId() && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_VERIFY_TOKEN),
+    tokenUsable: settings.metaTokenUsable === "true",
+    tokenType: settings.metaTokenType || null,
+    tokenExpiresAt: settings.metaTokenExpiresAt || null,
+    dataAccessExpiresAt: settings.metaDataAccessExpiresAt || null,
+    coexistenceDetected: settings.metaCoexistenceDetected === "true",
   };
+}
+
+function expiryLabel(value?: number) {
+  if (!value) return "Does not expire";
+  return new Date(value * 1000).toISOString();
+}
+
+async function debugToken() {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN || "";
+  const appId = process.env.META_APP_ID || "";
+  const appSecret = process.env.META_APP_SECRET || "";
+  const url = new URL(`https://graph.facebook.com/${version()}/debug_token`);
+  url.searchParams.set("input_token", token);
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${appId}|${appSecret}` }, signal: AbortSignal.timeout(12000) });
+  const body = await response.json() as MetaError & { data?: DebugTokenData };
+  if (!response.ok || !body.data?.is_valid) throw Object.assign(new Error(body.error?.message || "The stored Meta access token is expired or invalid."), { code: body.error?.code || response.status });
+  return body.data;
 }
 
 async function graph(target: string, init?: RequestInit) {
@@ -50,7 +75,7 @@ async function graph(target: string, init?: RequestInit) {
 }
 
 function syncTemplates(templates: MetaTemplate[]) {
-  const db = getSqlite();
+  const db = getDatabase();
   const now = nowIso();
   const upsert = db.prepare(`
     INSERT INTO message_templates (id,name,display_name,category,language,body,meta_template_name,status,variables_json,purpose,active,last_synced_at,created_at,updated_at)
@@ -76,7 +101,17 @@ export async function POST(request: NextRequest) {
     enforceSameOrigin(request); enforceRateLimit(request, "meta-test", 20);
     const input = ActionSchema.parse(await request.json().catch(() => ({})));
     const diagnostics = state();
-    if (!diagnostics.liveReady) return NextResponse.json({ ...diagnostics, connected: false, message: "Meta credentials are incomplete; Local Demo and Mock Meta remain available." }, { status: 503 });
+    if (!diagnostics.liveReady) return NextResponse.json({ ...diagnostics, connected: false, message: "Meta production credentials are incomplete. WhatsApp sending remains disabled." }, { status: 503 });
+
+    if (input.action === "credentials") {
+      const token = await debugToken();
+      const tokenType = token.type || "UNKNOWN";
+      const tokenExpiresAt = expiryLabel(token.expires_at);
+      const dataAccessExpiresAt = expiryLabel(token.data_access_expires_at);
+      setSettings({ metaTokenUsable: "true", metaTokenType: tokenType, metaTokenExpiresAt: tokenExpiresAt, metaDataAccessExpiresAt: dataAccessExpiresAt, metaTokenLastCheckedAt: nowIso() });
+      await graph(`${wabaId()}?fields=id,name,timezone_id,message_template_namespace`);
+      return NextResponse.json({ ...state(), connected: true, message: tokenType === "SYSTEM_USER" ? "Durable Meta System User token verified." : "Meta token is usable, but a System User token is recommended to avoid frequent credential replacement." });
+    }
 
     if (input.action === "send_test_template") {
       const recipient = (process.env.WHATSAPP_TEST_RECIPIENT || "").replace(/\D/g, "");
@@ -119,10 +154,11 @@ export async function POST(request: NextRequest) {
         : `${wabaId()}?fields=id,name,timezone_id,message_template_namespace`;
     const body = await graph(target);
     if (input.action === "templates" && Array.isArray(body.data)) syncTemplates(body.data as MetaTemplate[]);
-    const label = input.action === "credentials" ? "credentials" : input.action.replace("_", " ");
+    const label = input.action.replace("_", " ");
     return NextResponse.json({ ...diagnostics, connected: true, action: input.action, result: body.data || body, message: `Meta ${label} check completed.` });
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error ? Number((error as { code: unknown }).code) : undefined;
-    return NextResponse.json({ connected: false, code, message: error instanceof Error ? error.message : "Diagnostics failed" }, { status: 400 });
+    setSettings({ metaTokenUsable: "false", metaTokenLastCheckedAt: nowIso() });
+    return NextResponse.json({ ...state(), tokenUsable: false, connected: false, code, message: error instanceof Error ? error.message : "Diagnostics failed" }, { status: 400 });
   }
 }

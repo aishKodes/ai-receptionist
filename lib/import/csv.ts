@@ -1,4 +1,4 @@
-import { getSqlite, makeId, nowIso } from "@/db";
+import { getDatabase, makeId, nowIso } from "@/db";
 import { addAudit } from "@/lib/services/repository";
 import { normalizeIndianPhone } from "@/lib/channels/pipeline";
 
@@ -86,7 +86,7 @@ export function validateCsvRows(text: string, mapping?: CsvMapping) {
 
 export function importCsvLeads(fileName: string, text: string, mapping?: CsvMapping, duplicateMode: DuplicateMode = "skip") {
   const validated = validateCsvRows(text, mapping);
-  const db = getSqlite();
+  const db = getDatabase();
   const importId = makeId("import");
   const now = nowIso();
   let imported = 0, skipped = 0, errors = 0;
@@ -99,16 +99,17 @@ export function importCsvLeads(fileName: string, text: string, mapping?: CsvMapp
       if (existing) {
         if (duplicateMode === "skip") { skipped += 1; continue; }
         if (duplicateMode === "merge") {
-          db.prepare("UPDATE patients SET name=CASE WHEN name LIKE 'Imported Patient%' THEN ? ELSE name END,primary_concern=COALESCE(primary_concern,?),treatment_slug=COALESCE(treatment_slug,?),whatsapp_opt_in_status=CASE WHEN whatsapp_opt_in_status='UNKNOWN' THEN ? ELSE whatsapp_opt_in_status END,updated_at=? WHERE id=?").run(row.name, row.concern || null, row.treatmentSlug, row.consent, now, existing.id);
+          db.prepare("UPDATE patients SET name=CASE WHEN name LIKE 'Imported Patient%' THEN ? ELSE name END,name_source=CASE WHEN name LIKE 'Imported Patient%' THEN 'csv_import' ELSE name_source END,name_verified=CASE WHEN name LIKE 'Imported Patient%' THEN 1 ELSE name_verified END,primary_concern=COALESCE(primary_concern,?),treatment_slug=COALESCE(treatment_slug,?),whatsapp_opt_in_status=CASE WHEN whatsapp_opt_in_status='UNKNOWN' THEN ? ELSE whatsapp_opt_in_status END,updated_at=? WHERE id=?").run(row.name, row.concern || null, row.treatmentSlug, row.consent, now, existing.id);
         } else {
-          db.prepare("UPDATE patients SET name=?,primary_concern=?,treatment_slug=COALESCE(?,treatment_slug),source=?,whatsapp_opt_in_status=?,whatsapp_opt_in_date=CASE WHEN ?='CONFIRMED' THEN COALESCE(whatsapp_opt_in_date,?) ELSE whatsapp_opt_in_date END,whatsapp_opt_in_source=CASE WHEN ?='CONFIRMED' THEN 'csv_import' ELSE whatsapp_opt_in_source END,do_not_contact=CASE WHEN ?='REVOKED' THEN 1 ELSE do_not_contact END,updated_at=? WHERE id=?").run(row.name, row.concern || null, row.treatmentSlug, row.source, row.consent, row.consent, now, row.consent, row.consent, now, existing.id);
+          db.prepare("UPDATE patients SET name=?,name_source='csv_import',name_verified=1,primary_concern=?,treatment_slug=COALESCE(?,treatment_slug),source=?,whatsapp_opt_in_status=?,whatsapp_opt_in_date=CASE WHEN ?='CONFIRMED' THEN COALESCE(whatsapp_opt_in_date,?) ELSE whatsapp_opt_in_date END,whatsapp_opt_in_source=CASE WHEN ?='CONFIRMED' THEN 'csv_import' ELSE whatsapp_opt_in_source END,do_not_contact=CASE WHEN ?='REVOKED' THEN 1 ELSE do_not_contact END,updated_at=? WHERE id=?").run(row.name, row.concern || null, row.treatmentSlug, row.source, row.consent, row.consent, now, row.consent, row.consent, now, existing.id);
         }
         imported += 1;
         continue;
       }
       const patientId = makeId("pat"), conversationId = makeId("con");
-      db.prepare("INSERT INTO patients (id,name,phone,primary_concern,treatment_slug,lead_score,lead_temperature,lead_stage,source,ai_summary,assigned_to,ai_enabled,whatsapp_opt_in_status,whatsapp_opt_in_date,whatsapp_opt_in_source,do_not_contact,created_at,updated_at) VALUES (?,?,?,?,?,10,'COLD','new',?,?,'AI Reception',1,?,?,?,?,?,?)").run(patientId, row.name, row.phone, row.concern || null, row.treatmentSlug, row.source, row.notes || "Imported lead; conversation has not started.", row.consent, row.consent === "CONFIRMED" ? now : null, row.consent === "CONFIRMED" ? "csv_import" : null, row.consent === "REVOKED" ? 1 : 0, now, now);
-      db.prepare("INSERT INTO conversations (id,patient_id,channel,status,unread_count,ai_enabled,last_message_at,created_at) VALUES (?,?,'local_demo','open',0,1,?,?)").run(conversationId, patientId, now, now);
+      db.prepare("INSERT INTO patients (id,name,name_source,name_verified,phone,primary_concern,treatment_slug,lead_score,lead_temperature,lead_stage,source,ai_summary,assigned_to,ai_enabled,whatsapp_opt_in_status,whatsapp_opt_in_date,whatsapp_opt_in_source,do_not_contact,created_at,updated_at) VALUES (?,?,'csv_import',1,?,?,?,10,'COLD','new',?,?,'AI Reception',1,?,?,?,?,?,?)").run(patientId, row.name, row.phone, row.concern || null, row.treatmentSlug, row.source, row.notes || "Imported lead; conversation has not started.", row.consent, row.consent === "CONFIRMED" ? now : null, row.consent === "CONFIRMED" ? "csv_import" : null, row.consent === "REVOKED" ? 1 : 0, now, now);
+      db.prepare("INSERT INTO conversations (id,patient_id,channel,status,unread_count,ai_enabled,last_message_at,created_at) VALUES (?,?,'whatsapp','open',0,1,?,?)").run(conversationId, patientId, now, now);
+      db.prepare("INSERT INTO conversation_state (conversation_id,offered_slots_json,sent_content_ids_json,created_at,updated_at) VALUES (?,'[]','[]',?,?)").run(conversationId, now, now);
       imported += 1;
     }
     db.prepare("UPDATE lead_imports SET status='COMPLETED',imported_rows=?,skipped_rows=?,error_rows=?,errors_json=?,completed_at=? WHERE id=?").run(imported, skipped, errors, JSON.stringify(rowErrors.slice(0, 100)), nowIso(), importId);

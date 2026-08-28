@@ -1,8 +1,8 @@
-import { getSqlite, nowIso } from "@/db";
+import { getDatabase, nowIso } from "@/db";
 import { NormalizedInboundSchema, type NormalizedInbound } from "@/lib/ai/schemas";
 import { processPatientMessage } from "@/lib/ai/orchestrator";
-import { deliverConversationRepliesAfter, messageRowId } from "@/lib/channels/delivery";
-import { addAudit, addEvent, addMessage, createHumanTask, ensurePatientForChannel, getPatientContext, updatePatient } from "@/lib/services/repository";
+import { deliverConversationRepliesAfter, messageCursor } from "@/lib/channels/delivery";
+import { addAudit, addEvent, addMessage, createHumanTask, ensurePatientForChannel, getPatientContext, resolveHumanLockForInbound, updatePatient } from "@/lib/services/repository";
 
 const optOutPattern = /^(?:stop|unsubscribe|remove me|don't message me|do not message me|opt out)[.!\s]*$/i;
 
@@ -16,7 +16,7 @@ export function isOptOut(text: string) { return optOutPattern.test(text.trim());
 
 export async function processIncomingMessage(raw: NormalizedInbound) {
   const incoming = NormalizedInboundSchema.parse(raw);
-  const db = getSqlite();
+  const db = getDatabase();
   if (incoming.externalMessageId) {
     const duplicate = db.prepare("SELECT id FROM messages WHERE external_message_id=?").get(incoming.externalMessageId);
     if (duplicate) return { duplicate: true, replied: false };
@@ -31,13 +31,14 @@ export async function processIncomingMessage(raw: NormalizedInbound) {
   const conversationId = String(context.conversation.id);
   const displayText = incoming.text || `[${incoming.messageType} received]`;
   const inbound = addMessage({ patientId, conversationId, direction: "inbound", senderType: "patient", content: displayText, messageType: incoming.messageType, mediaUrl: incoming.mediaId ? `meta-media://${incoming.mediaId}` : null, externalMessageId: incoming.externalMessageId, metadata: { channel: incoming.channel, mimeType: incoming.mediaMimeType || null } });
-  const inboundRowId = messageRowId(inbound.id);
+  const inboundCursor = messageCursor(inbound.id);
   const finish = async <T extends Record<string, unknown>>(result: T) => {
-    const deliveries = await deliverConversationRepliesAfter(conversationId, inboundRowId, incoming.channel);
+    const deliveries = await deliverConversationRepliesAfter(conversationId, inboundCursor, incoming.channel);
     return { ...result, deliveries };
   };
 
   db.prepare("UPDATE outbound_messages SET status='REPLIED',replied_at=? WHERE id=(SELECT id FROM outbound_messages WHERE patient_id=? AND status IN ('SENT','DELIVERED','READ') ORDER BY sent_at DESC LIMIT 1)").run(nowIso(), patientId);
+  const humanLock = resolveHumanLockForInbound(patientId);
 
   if (isOptOut(incoming.text)) {
     const now = nowIso();
@@ -47,8 +48,17 @@ export async function processIncomingMessage(raw: NormalizedInbound) {
     })();
     addEvent(patientId, conversationId, "OPT_OUT", "Patient opted out", "Future automated outreach was stopped.");
     addAudit("OPT_OUT", "patient", patientId, "WhatsApp consent revoked and queued outreach cancelled", "SYSTEM");
-    addMessage({ patientId, conversationId, direction: "outbound", senderType: "system", content: "You have been opted out of promotional messages from Radiance Clinics. We will not automatically opt you back in. You may contact reception if you wish to give consent again." });
-    return finish({ patientId, mode: "opt_out", replied: true });
+    if (!humanLock.locked) addMessage({ patientId, conversationId, direction: "outbound", senderType: "system", content: "You have been opted out of promotional messages from Radiance Clinics. We will not automatically opt you back in. You may contact reception if you wish to give consent again." });
+    return finish({ patientId, mode: "opt_out", replied: !humanLock.locked });
+  }
+
+  if (humanLock.locked) {
+    if (incoming.messageType !== "text" && incoming.messageType !== "interactive") {
+      createHumanTask({ patientId, conversationId, type: "DOCTOR_REVIEW", priority: "HIGH", title: `${incoming.messageType} needs staff review`, reason: "Patient media arrived while reception was handling the conversation." });
+      addEvent(patientId, conversationId, "MEDIA_RECEIVED", "Patient media queued for review", incoming.messageType);
+    }
+    addEvent(patientId, conversationId, "AI_SUPPRESSED_HUMAN_LOCK", "AI reply paused", `Reception is handling this conversation until ${humanLock.lockUntil}.`);
+    return finish({ patientId, mode: "human_lock", replied: false, lockUntil: humanLock.lockUntil });
   }
 
   if (incoming.messageType !== "text" && incoming.messageType !== "interactive") {
