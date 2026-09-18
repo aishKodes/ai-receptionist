@@ -12,6 +12,9 @@ function authorized(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const [jobs, outreach] = await Promise.all([processDueJobsOnce(25), processOutboundOnce()]);
+  const [jobs, outreach] = await Promise.all([
+    processDueJobsOnce(25),
+    process.env.AUTO_MARKETING_ENABLED === "true" ? processOutboundOnce() : Promise.resolve({ skipped: true, reason: "Automatic outreach is disabled pending controlled acceptance testing." }),
+  ]);
   return NextResponse.json({ ok: true, jobs, outreach, processedAt: new Date().toISOString() });
 }

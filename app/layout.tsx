@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.APP_URL || "http://localhost:3000"),
+  metadataBase: new URL(process.env.APP_URL || "https://crm.radianceclinics.com"),
   title: "Radiance AI Reception",
   description: "Intelligent patient reception, CRM and appointment operations for Radiance Clinics, Bhubaneswar.",
   manifest: "/site.webmanifest",

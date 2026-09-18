@@ -2,6 +2,7 @@ import { format, parseISO } from "date-fns";
 import { getDatabase, makeId, nowIso } from "@/db";
 import { createSchema } from "@/lib/db/setup";
 import { estimateModelCostUsd } from "@/lib/ai/cost";
+import { appointmentConfiguration, appointmentConfigurationMissing } from "@/lib/scheduling/availability";
 
 let initialized = false;
 export function ready() {
@@ -69,10 +70,14 @@ export function selectContent(conversationId: string, treatmentSlug: string | nu
 
 export function getAvailableSlots(date: string, period?: "morning" | "evening" | null) {
   const db = ready();
+  const configuration = appointmentConfiguration();
+  if (appointmentConfigurationMissing(configuration).length) return [];
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((part) => [part.type, part.value]));
   const today = `${parts.year}-${parts.month}-${parts.day}`;
   if (date < today) return [];
-  const earliestMinutes = date === today ? Number(parts.hour) * 60 + Number(parts.minute) + 30 : 0;
+  const daysAhead = Math.floor((new Date(`${date}T12:00:00+05:30`).getTime() - new Date(`${today}T12:00:00+05:30`).getTime()) / 86400000);
+  if (configuration.maxAdvanceDays && daysAhead > configuration.maxAdvanceDays) return [];
+  const earliestMinutes = date === today ? Number(parts.hour) * 60 + Number(parts.minute) + configuration.bookingLeadMinutes : 0;
   const rows = db.prepare(`SELECT s.time FROM available_slots s WHERE s.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.status = 'confirmed' AND substr(a.date_time,1,10) = s.date AND substr(a.date_time,12,5) = s.time) ORDER BY s.time`).all(date) as Array<{ time: string }>;
   return rows.map((row) => row.time).filter((time) => { const [hour, minute] = time.split(":").map(Number); return hour * 60 + minute >= earliestMinutes && (period === "evening" ? time >= "16:00" : period === "morning" ? time < "13:00" : true); });
 }
@@ -147,7 +152,7 @@ export function getConversationState(conversationId: string) {
   const db = ready();
   const now = nowIso();
   db.prepare("INSERT OR IGNORE INTO conversation_state (conversation_id,offered_slots_json,sent_content_ids_json,created_at,updated_at) VALUES (?,'[]','[]',?,?)").run(conversationId, now, now);
-  return db.prepare(`SELECT conversation_id AS conversationId,preferred_language AS preferredLanguage,active_flow AS activeFlow,pending_question AS pendingQuestion,pending_action AS pendingAction,last_assistant_question AS lastAssistantQuestion,requested_date AS requestedDate,requested_time AS requestedTime,requested_day_part AS requestedDayPart,offered_slots_json AS offeredSlotsJson,selected_slot AS selectedSlot,appointment_id AS appointmentId,current_concern AS currentConcern,current_treatment AS currentTreatment,previous_treatment AS previousTreatment,rolling_summary AS rollingSummary,sent_content_ids_json AS sentContentIdsJson,last_content_sent_at AS lastContentSentAt,ai_mode AS aiMode,human_lock_until AS humanLockUntil,conversation_phase AS conversationPhase,readiness_score AS readinessScore,readiness_reason AS readinessReason,primary_objection AS primaryObjection,next_best_action AS nextBestAction,next_action_reason AS nextActionReason,conversion_memory_json AS conversionMemoryJson,created_at AS createdAt,updated_at AS updatedAt FROM conversation_state WHERE conversation_id=?`).get(conversationId) as Record<string, unknown>;
+  return db.prepare(`SELECT conversation_id AS conversationId,preferred_language AS preferredLanguage,active_flow AS activeFlow,pending_question AS pendingQuestion,pending_action AS pendingAction,last_assistant_question AS lastAssistantQuestion,requested_date AS requestedDate,requested_time AS requestedTime,requested_day_part AS requestedDayPart,offered_slots_json AS offeredSlotsJson,selected_slot AS selectedSlot,appointment_id AS appointmentId,current_concern AS currentConcern,current_treatment AS currentTreatment,previous_treatment AS previousTreatment,rolling_summary AS rollingSummary,sent_content_ids_json AS sentContentIdsJson,last_content_sent_at AS lastContentSentAt,ai_mode AS aiMode,human_lock_until AS humanLockUntil,conversation_phase AS conversationPhase,readiness_score AS readinessScore,readiness_reason AS readinessReason,primary_objection AS primaryObjection,next_best_action AS nextBestAction,next_action_reason AS nextActionReason,booking_declined_for_now AS bookingDeclinedForNow,conversion_memory_json AS conversionMemoryJson,created_at AS createdAt,updated_at AS updatedAt FROM conversation_state WHERE conversation_id=?`).get(conversationId) as Record<string, unknown>;
 }
 
 export function updateConversationState(conversationId: string, fields: Record<string, unknown>) {
@@ -162,6 +167,7 @@ export function updateConversationState(conversationId: string, fields: Record<s
     humanLockUntil: "human_lock_until",
     conversationPhase: "conversation_phase", readinessScore: "readiness_score", readinessReason: "readiness_reason",
     primaryObjection: "primary_objection", nextBestAction: "next_best_action", nextActionReason: "next_action_reason",
+    bookingDeclinedForNow: "booking_declined_for_now",
     conversionMemoryJson: "conversion_memory_json",
   };
   const entries = Object.entries(fields).filter(([key, value]) => key in allowed && value !== undefined);

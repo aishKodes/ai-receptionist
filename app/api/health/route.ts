@@ -9,9 +9,8 @@ export function GET() {
     return NextResponse.json({
       status: "ok",
       database: "ok",
-      timestamp: new Date().toISOString(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ status: "degraded", database: "unavailable", timestamp: new Date().toISOString() }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ status: "degraded", database: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

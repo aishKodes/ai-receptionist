@@ -15,16 +15,18 @@
     "db:reset:test": "RADIANCE_ALLOW_FIXTURES=true tsx scripts/setup.ts --seed-test --reset-test",
     "db:generate": "drizzle-kit generate",
     "db:mysql:migrate": "tsx scripts/mysql-migrate.ts",
+    "db:production-check": "tsx scripts/production-db-check.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .wrangler",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:conversation-quality": "vitest run tests/conversation-quality.test.ts",
     "eval:models": "tsx scripts/eval-models.ts",
     "smoke:conversations": "tsx scripts/smoke-conversations.ts",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "auth:hash-pin": "tsx scripts/hash-pin.ts",
-    "production:clean": "tsx scripts/production-cleanup.ts --apply"
+    "production:clean": "tsx scripts/production-cleanup.ts --apply",
+    "predeploy": "tsx scripts/predeploy.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

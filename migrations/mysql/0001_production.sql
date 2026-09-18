@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS conversation_state (
   requested_date VARCHAR(20), requested_time VARCHAR(20), requested_day_part VARCHAR(20), offered_slots_json LONGTEXT NOT NULL, selected_slot VARCHAR(20), appointment_id VARCHAR(64),
   current_concern TEXT, current_treatment VARCHAR(100), previous_treatment BOOLEAN NOT NULL DEFAULT FALSE, rolling_summary TEXT, sent_content_ids_json LONGTEXT NOT NULL,
   last_content_sent_at VARCHAR(40), ai_mode VARCHAR(24) NOT NULL DEFAULT 'AI', human_lock_until VARCHAR(40),
-  conversation_phase VARCHAR(40) NOT NULL DEFAULT 'DISCOVERY', readiness_score INT NOT NULL DEFAULT 0, readiness_reason TEXT, primary_objection VARCHAR(40), next_best_action VARCHAR(40) NOT NULL DEFAULT 'ANSWER', next_action_reason TEXT, conversion_memory_json LONGTEXT,
+  conversation_phase VARCHAR(40) NOT NULL DEFAULT 'DISCOVERY', readiness_score INT NOT NULL DEFAULT 0, readiness_reason TEXT, primary_objection VARCHAR(40), next_best_action VARCHAR(40) NOT NULL DEFAULT 'ANSWER', next_action_reason TEXT, booking_declined_for_now BOOLEAN NOT NULL DEFAULT FALSE, conversion_memory_json LONGTEXT,
   created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
   CONSTRAINT fk_conversation_state_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

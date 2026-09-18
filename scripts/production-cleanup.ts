@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { format, addDays } from "date-fns";
 import { getSqlite, nowIso } from "@/db";
 import { createSchema } from "@/lib/db/setup";
 
@@ -36,13 +35,8 @@ const result = db.transaction(() => {
   insertContent.run("content_hair_transplant_guide", "youtube", "Hair transplant guide", "A doctor-reviewed guide to understanding hair-transplant consultation and treatment planning.", "https://youtu.be/8qYMw935MF8", null, "hair_transplant", JSON.stringify(["hair transplant", "guide", "consultation"]), "Only when a patient explicitly asks for a hair-transplant guide", 20, now);
   db.prepare("DELETE FROM settings WHERE key IN ('demoMode','reminder1Seconds','reminder2Seconds')").run();
   db.prepare("DELETE FROM available_slots").run();
-  const insertSlot = db.prepare("INSERT INTO available_slots (id,date,time,active) VALUES (?,?,?,1)");
-  const slotTimes = ["10:00", "10:30", "11:00", "11:30", "12:00", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30"];
-  for (let day = 0; day < 45; day += 1) {
-    const date = format(addDays(new Date(), day), "yyyy-MM-dd");
-    for (const time of slotTimes) insertSlot.run(`slot_${date}_${time.replace(":", "")}`, date, time);
-  }
-  return { removedTestPatients: fakePatientIds.length, approvedContentItems: 2, availableSlots: 45 * slotTimes.length };
+  db.prepare("DELETE FROM settings WHERE key IN ('clinicOperatingHours','appointmentSlotMinutes')").run();
+  return { removedTestPatients: fakePatientIds.length, approvedContentItems: 2, availableSlots: 0 };
 })();
 
 console.log(`[PRODUCTION CLEANUP] ${JSON.stringify(result)}`);

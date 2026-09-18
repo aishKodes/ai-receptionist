@@ -107,6 +107,35 @@ describe("conversation-quality: state/action, not fixed copy", () => {
     const plan = planTurn({ message: "Please send the hair transplant guide video", decision: decision("hair_transplant", "hair_transplant") });
     expect(removeBookingPressure("Here is the guide. I can also arrange a consultation if you would like.", plan)).toBe("Here is the guide.");
   });
+  it("moves a persistent acne enquiry to a soft booking offer without a long intake", () => {
+    const d = decision("acne", "acne"); d.extracted.duration = "5 years";
+    const plan = planTurn({ message: "I have acne for 5 years.", decision: d });
+    expect(plan.nextBestAction).toBe("SOFT_BOOKING_OFFER");
+    expect(plan.readinessScore).toBeGreaterThanOrEqual(45);
+    expect(plan.allowBookingOffer).toBe(true);
+  });
+  it("offers booking after a useful second hair-concern turn", () => {
+    const plan = planTurn({ message: "Hair is thinning from the front.", decision: decision("hair_loss", "hair_loss"), state: { currentTreatment: "hair_loss", conversionMemoryJson: JSON.stringify({ substantiveTurns: 1 }) } });
+    expect(plan.nextBestAction).toBe("SOFT_BOOKING_OFFER");
+  });
+  it("respects a booking decline, then reopens only on a later buying signal", () => {
+    const declined = planTurn({ message: "Not ready to book.", decision: decision("acne", "acne") });
+    expect(declined.bookingDeclinedForNow).toBe(true);
+    expect(declined.allowBookingOffer).toBe(false);
+    const reopened = planTurn({ message: "What is the cost?", decision: decision("pricing", "acne"), state: { bookingDeclinedForNow: true, currentTreatment: "acne", conversionMemoryJson: JSON.stringify({ substantiveTurns: 1 }) } });
+    expect(reopened.bookingDeclinedForNow).toBe(false);
+    expect(reopened.allowBookingOffer).toBe(true);
+  });
+  it("answers a price question and makes assessment the next step", () => {
+    const plan = planTurn({ message: "How much does it cost?", decision: decision("pricing", "hair_transplant") });
+    expect(plan.nextBestAction).toBe("SOFT_BOOKING_OFFER");
+    expect(plan.allowBookingOffer).toBe(true);
+  });
+  it("returns direct slots for a tomorrow request", () => {
+    const plan = planTurn({ message: "Can I come tomorrow?", decision: decision("appointment", "hair_transplant") });
+    expect(plan.nextBestAction).toBe("OFFER_BOOKING");
+    expect(plan.offerSlots).toBe(true);
+  });
 });
 
 describe("conversation-quality: persisted local flows", () => {
@@ -119,6 +148,13 @@ describe("conversation-quality: persisted local flows", () => {
     expect(Number(context.state.readinessScore)).toBeLessThan(50);
     expect(context.state.conversationPhase).not.toBe("BOOKING");
     expect(context.messages.at(-1)?.content).not.toMatch(/would you like to book/i);
+  });
+  it("offers a consultation after a persistent acne concern and records the conversion state", async () => {
+    await processIncomingMessage({ channel: "local", patientId: "pat_priyanka", text: "I have acne for 5 years.", messageType: "text" });
+    const context = getPatientContext("pat_priyanka")!;
+    expect(context.state.nextBestAction).toBe("SOFT_BOOKING_OFFER");
+    expect(Number(context.state.readinessScore)).toBeGreaterThanOrEqual(45);
+    expect(String(context.messages.at(-1)?.content)).toMatch(/available consultation times|consultation/i);
   });
   it("switches to Odia without resetting concern or calling a model", async () => {
     const before = (getSqlite().prepare("SELECT COUNT(*) AS count FROM provider_usage").get() as { count: number }).count;

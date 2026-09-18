@@ -94,6 +94,7 @@ export const conversationState = sqliteTable("conversation_state", {
   primaryObjection: text("primary_objection"),
   nextBestAction: text("next_best_action").notNull().default("ANSWER"),
   nextActionReason: text("next_action_reason"),
+  bookingDeclinedForNow: integer("booking_declined_for_now", { mode: "boolean" }).notNull().default(false),
   conversionMemoryJson: text("conversion_memory_json").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

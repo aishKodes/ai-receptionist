@@ -64,6 +64,24 @@ function priceGuidance(language: string) {
   return "The final cost depends on your concern and treatment plan; the clinic can give an accurate estimate after a doctor's assessment. ";
 }
 
+function softBookingOffer(language: string) {
+  if (language === "HINDI") return "अगर आप चाहें, तो मैं डॉक्टर से परामर्श के उपलब्ध समय देख सकता हूँ।";
+  if (language === "HINGLISH") return "Agar aap chahein, main doctor consultation ke available times check kar sakta hoon.";
+  if (language === "ODIA") return "ଆପଣ ଚାହିଁଲେ, ମୁଁ ଡାକ୍ତରଙ୍କ ପରାମର୍ଶ ପାଇଁ ଉପଲବ୍ଧ ସମୟ ଯାଞ୍ଚ କରିପାରିବି।";
+  return "If you'd like, I can check the available consultation times so the doctor can assess this properly.";
+}
+
+function bookingDeclinedReply(language: string) {
+  if (language === "HINDI") return "समझ गया — अभी बुकिंग का कोई दबाव नहीं है। जब चाहें, सामान्य जानकारी के लिए यहाँ संदेश कर सकते हैं।";
+  if (language === "HINGLISH") return "Samajh gaya — abhi booking ka koi pressure nahi hai. Jab chahein, general information ke liye yahin message kar sakte hain.";
+  if (language === "ODIA") return "ବୁଝିଲି — ଏବେ ବୁକିଂ ପାଇଁ କୌଣସି ଚାପ ନାହିଁ। ସାଧାରଣ ସୂଚନା ପାଇଁ ଯେକୌଣସି ସମୟରେ ଏଠାରେ ସନ୍ଦେଶ କରନ୍ତୁ।";
+  return "Understood — there is no pressure to book. I can still help with general information whenever you need it.";
+}
+
+function alreadyOffersConsultation(reply: string) {
+  return /(?:would you like|if you(?:'d| would) like|can (?:also )?help|available consultation times|book(?:ing)? (?:a )?(?:consultation|appointment)|consultation times)/i.test(reply);
+}
+
 function contentShareReply(language: string, title: string) {
   if (language === "HINDI") return `ज़रूर — यह ${title} है, जो आपने माँगा था।`;
   if (language === "HINGLISH") return `Bilkul — yeh ${title} hai, jo aapne maanga tha.`;
@@ -122,6 +140,13 @@ export async function processPatientMessage(patientId: string, content: string, 
     addEvent(patientId, conversationId, "APPOINTMENT_CHANGED", "Appointment cancelled", "Patient requested cancellation.");
     addAudit("APPOINTMENT_CHANGED", "appointment", String(refreshed.appointment.id), "Appointment cancelled", "AI", { patientId });
     return directReply("Your consultation has been cancelled and its pending reminders have been stopped. If you need another time later, just message us here.", { conversationPhase: "CONSIDERATION", nextBestAction: "WAIT", pendingAction: null, offeredSlotsJson: "[]" });
+  }
+  if (/^(?:no|nope|nah|not now|not ready(?: to book)?|i(?:'| a)m just (?:asking|researching)|i(?:'| a)m(?: still)? thinking about it|i(?:'| i)ll think about it)[.!\s]*$/i.test(content.trim())) {
+    return directReply(bookingDeclinedReply(language), {
+      conversationPhase: "CONSIDERATION", readinessScore: 25, readinessReason: "Patient asked not to pursue booking right now",
+      bookingDeclinedForNow: true, nextBestAction: "ANSWER", nextActionReason: "Patient declined booking for now",
+      pendingAction: null, pendingQuestion: null, offeredSlotsJson: "[]",
+    });
   }
   const directSlots = (() => { try { return JSON.parse(String(refreshed.state.offeredSlotsJson || "[]")) as string[]; } catch { return []; } })();
   const directSlot = directSlots.length && refreshed.state.pendingAction === "select_slot" ? selectOfferedSlot(content, directSlots) : null;
@@ -195,8 +220,11 @@ export async function processPatientMessage(patientId: string, content: string, 
   const plan = planTurn({ message: content, decision, state: refreshed.state, appointment: refreshed.appointment, leadScore: Number(refreshed.patient.leadScore || 0), contentAvailable: Boolean(candidateContent) });
   const originalReply = decision.reply;
   decision.reply = sanitizePatientReply(decision.reply, plan, language);
+  if (plan.nextBestAction === "SOFT_BOOKING_OFFER" && !alreadyOffersConsultation(decision.reply)) {
+    decision.reply = `${decision.reply.trim()} ${softBookingOffer(language)}`;
+  }
   if (decision.reply !== originalReply) addEvent(patientId, conversationId, "AI_REPLY_GUARDED", "Reply adjusted by safety policy", "Unsupported claims or booking pressure were removed.");
-  decision.shouldOfferBooking = plan.allowBookingOffer;
+  decision.shouldOfferBooking = plan.offerSlots;
   if (routed.fallbackUsed) {
     addEvent(patientId, conversationId, "PROVIDER_FALLBACK", "AI provider fallback activated", routed.fallbackReason || "A secondary engine handled this turn.", { provider: routed.provider.name });
     addAudit("AI_PROVIDER_FALLBACK", "conversation", conversationId, `Fallback provider: ${routed.provider.name}`, "AI", { patientId });
@@ -234,9 +262,10 @@ export async function processPatientMessage(patientId: string, content: string, 
     requestedDayPart: /evening/i.test(content) ? "evening" : /morning/i.test(content) ? "morning" : undefined,
     conversationPhase: plan.conversationPhase, readinessScore: plan.readinessScore, readinessReason: plan.readinessReason,
     primaryObjection: plan.primaryObjection, nextBestAction: plan.nextBestAction, nextActionReason: plan.readinessReason,
-    pendingAction: plan.primaryObjection === "NOT_READY" ? null : undefined,
-    offeredSlotsJson: plan.primaryObjection === "NOT_READY" ? "[]" : undefined,
-    conversionMemoryJson: JSON.stringify({ concern: changes.primaryConcern ?? refreshed.patient.primaryConcern ?? null, treatment: slug, objection: plan.primaryObjection, priceDiscussed: decision.intent === "pricing" || String(refreshed.state.conversionMemoryJson || "").includes('"priceDiscussed":true'), appointmentDiscussed: plan.allowBookingOffer || String(refreshed.state.conversionMemoryJson || "").includes('"appointmentDiscussed":true'), lastAction: plan.nextBestAction }),
+    bookingDeclinedForNow: plan.bookingDeclinedForNow,
+    pendingAction: plan.bookingDeclinedForNow ? null : undefined,
+    offeredSlotsJson: plan.bookingDeclinedForNow ? "[]" : undefined,
+    conversionMemoryJson: JSON.stringify({ concern: changes.primaryConcern ?? refreshed.patient.primaryConcern ?? null, treatment: slug, objection: plan.primaryObjection, priceDiscussed: decision.intent === "pricing" || String(refreshed.state.conversionMemoryJson || "").includes('"priceDiscussed":true'), appointmentDiscussed: plan.allowBookingOffer || String(refreshed.state.conversionMemoryJson || "").includes('"appointmentDiscussed":true'), bookingDeclinedForNow: plan.bookingDeclinedForNow, substantiveTurns: plan.substantiveTurns, lastAction: plan.nextBestAction }),
   });
 
   const afterFields = getPatientContext(patientId)!;

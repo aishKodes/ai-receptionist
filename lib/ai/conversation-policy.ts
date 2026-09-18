@@ -105,7 +105,28 @@ export type TurnPlan = {
   contentRecommendation: string | null;
   extractedFacts: ReceptionDecision["extracted"];
   allowBookingOffer: boolean;
+  offerSlots: boolean;
+  bookingDeclinedForNow: boolean;
+  substantiveTurns: number;
 };
+
+function conversionMemory(state: Record<string, unknown>) {
+  try {
+    const parsed = JSON.parse(String(state.conversionMemoryJson || "{}"));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch { return {}; }
+}
+
+function meaningfulPatientTurn(text: string, decision: ReceptionDecision) {
+  if (decision.treatmentSlug || decision.extracted.concern || decision.extracted.duration || decision.intent === "pricing") return true;
+  return /\b(?:hair|skin|acne|pimple|pigment|prp|gfc|laser|transplant|recovery|result|cost|price|consultation)\b/i.test(text);
+}
+
+function laterBuyingSignal(text: string, decision: ReceptionDecision) {
+  return explicitBookingRequest(text)
+    || decision.intent === "pricing"
+    || /\b(?:price|cost|fee|charges?|availability|available|recovery|downtime|when can i come|treatment soon|this week|next week|how long)\b/i.test(text);
+}
 
 export function planTurn(args: { message: string; decision: ReceptionDecision; state?: Record<string, unknown>; appointment?: Record<string, unknown> | null; leadScore?: number; contentAvailable?: boolean }): TurnPlan {
   const { message: text, decision, state = {}, appointment } = args;
@@ -114,16 +135,35 @@ export function planTurn(args: { message: string; decision: ReceptionDecision; s
   const explicitCall = /\b(call me|call back|phone me|can (?:someone|somebody) call|speak on (?:the )?phone)\b/i.test(text);
   const clinical = decision.intent === "post_procedure_concern" || objection === "NEEDS_DOCTOR";
   const booked = appointment?.status === "confirmed" && !["reschedule", "cancellation"].includes(decision.intent);
-  const notReady = objection === "NOT_READY" || /\b(just checking|researching|exploring|information only|not planning|not booking yet|not ready|don't want to book)\b/i.test(text);
+  const notReady = objection === "NOT_READY" || /\b(no|not now|just asking|just checking|researching|exploring|information only|not planning|not booking yet|not ready|don't want to book|i'll think|i will think)\b/i.test(text);
+  const memory = conversionMemory(state);
+  const priorSubstantiveTurns = Number(memory.substantiveTurns || 0);
+  const substantiveTurns = priorSubstantiveTurns + Number(meaningfulPatientTurn(text, decision));
+  const buyingSignal = laterBuyingSignal(text, decision);
+  const bookingDeclinedForNow = notReady ? true : Boolean(state.bookingDeclinedForNow) && !buyingSignal;
+  const recentlyOfferedBooking = Boolean(memory.appointmentDiscussed) && ["SOFT_BOOKING_OFFER", "OFFER_BOOKING"].includes(String(memory.lastAction));
+  const bookingOfferCoolingOff = recentlyOfferedBooking && !explicitBooking && !buyingSignal;
+  const hasKnownConcern = Boolean(decision.treatmentSlug || state.currentTreatment || state.currentConcern);
+  const persistentConcern = Boolean(decision.extracted.duration || /\b(?:for|since)\s+(?:almost\s+|about\s+|around\s+)?\d+\s+(?:days?|weeks?|months?|years?)\b/i.test(text));
+  const qualifiedAndEngaged = hasKnownConcern && (substantiveTurns >= 2 || persistentConcern || decision.intent === "pricing");
   const prior = Number(state.readinessScore || 0);
-  let readiness = booked ? 100 : notReady ? 20 : explicitBooking ? 88 : objection ? Math.min(prior || 45, 45) : Math.max(25, Math.min(70, prior + (decision.treatmentSlug ? 12 : 0)));
+  let readiness = booked ? 100
+    : bookingDeclinedForNow ? Math.min(prior || 32, 32)
+    : explicitBooking ? 88
+    : decision.intent === "pricing" ? Math.max(48, Math.min(68, prior + 18))
+    : qualifiedAndEngaged ? Math.max(48, Math.min(72, prior + (persistentConcern ? 24 : 18)))
+    : hasKnownConcern ? Math.max(32, Math.min(44, prior + 12))
+    : Math.max(25, Math.min(42, prior + 5));
   if (/\b(this week|as soon as possible|soon)\b/i.test(text) && explicitBooking) readiness = 94;
   if (explicitCall) readiness = Math.max(readiness, 70);
   const humanRecommendation = clinical ? "DOCTOR_REVIEW" : explicitCall ? "CALL" : decision.humanEscalation.required ? "CHAT" : "NONE";
-  const phase: ConversationPhase = humanRecommendation !== "NONE" && decision.humanEscalation.required ? "HUMAN_HANDOFF" : booked ? "POST_BOOKING" : notReady ? "CONSIDERATION" : explicitBooking ? "BOOKING" : objection ? "OBJECTION_HANDLING" : decision.intent === "pricing" ? "CONSIDERATION" : state.conversationPhase === "DISCOVERY" && decision.treatmentSlug ? "UNDERSTANDING" : decision.treatmentSlug ? "EDUCATION" : "DISCOVERY";
-  const action: NextBestAction = clinical ? "DOCTOR_REVIEW" : explicitCall ? "CALL_RECOMMENDED" : decision.humanEscalation.required ? "HUMAN_CHAT" : booked ? "ANSWER" : notReady ? "ANSWER" : explicitBooking ? "OFFER_BOOKING" : objection ? "HANDLE_OBJECTION" : args.contentAvailable && decision.shouldSearchContent ? "SHARE_CONTENT" : decision.treatmentSlug ? "EDUCATE" : "ASK_ONE_QUESTION";
-  const readinessReason = booked ? "Consultation confirmed" : notReady ? "Patient is exploring, not asking to book" : explicitBooking ? "Patient explicitly asked about an appointment" : objection ? `Patient has a ${objection.toLowerCase().replaceAll("_", " ")} question` : decision.treatmentSlug ? "Treatment interest; information is more useful than a booking prompt now" : "Concern still being understood";
-  return { conversationPhase: phase, patientIntent: decision.intent, intentConfidence: decision.intentConfidence, nextBestAction: action, readinessScore: readiness, readinessReason, primaryObjection: objection ?? (state.primaryObjection as Objection | null) ?? null, humanRecommendation, contentRecommendation: action === "SHARE_CONTENT" ? decision.contentQuery : null, extractedFacts: decision.extracted, allowBookingOffer: explicitBooking && !notReady };
+  const requestedApprovedContent = Boolean(args.contentAvailable && decision.shouldSearchContent);
+  const allowBookingOffer = !bookingDeclinedForNow && !bookingOfferCoolingOff && !requestedApprovedContent && humanRecommendation === "NONE" && !booked && (explicitBooking || readiness >= 45);
+  const offerSlots = allowBookingOffer && (explicitBooking || readiness >= 65);
+  const phase: ConversationPhase = humanRecommendation !== "NONE" && decision.humanEscalation.required ? "HUMAN_HANDOFF" : booked ? "POST_BOOKING" : bookingDeclinedForNow ? "CONSIDERATION" : offerSlots ? "BOOKING" : allowBookingOffer ? "SOFT_CONVERSION" : objection ? "OBJECTION_HANDLING" : state.conversationPhase === "DISCOVERY" && hasKnownConcern ? "UNDERSTANDING" : hasKnownConcern ? "EDUCATION" : "DISCOVERY";
+  const action: NextBestAction = clinical ? "DOCTOR_REVIEW" : explicitCall ? "CALL_RECOMMENDED" : decision.humanEscalation.required ? "HUMAN_CHAT" : booked ? "ANSWER" : bookingDeclinedForNow ? "ANSWER" : requestedApprovedContent ? "SHARE_CONTENT" : offerSlots ? "OFFER_BOOKING" : allowBookingOffer ? "SOFT_BOOKING_OFFER" : objection ? "HANDLE_OBJECTION" : hasKnownConcern ? "EDUCATE" : "ASK_ONE_QUESTION";
+  const readinessReason = booked ? "Consultation confirmed" : bookingDeclinedForNow ? "Patient asked not to pursue booking right now" : explicitBooking ? "Patient explicitly asked about an appointment" : offerSlots ? "Qualified concern with clear consultation intent" : allowBookingOffer ? "Concern is understood; a consultation is the useful next step" : decision.intent === "pricing" ? "Pricing question answered; assessment can clarify the exact estimate" : hasKnownConcern ? "One more useful detail may help before offering a consultation" : "Concern still being understood";
+  return { conversationPhase: phase, patientIntent: decision.intent, intentConfidence: decision.intentConfidence, nextBestAction: action, readinessScore: readiness, readinessReason, primaryObjection: objection ?? (state.primaryObjection as Objection | null) ?? null, humanRecommendation, contentRecommendation: action === "SHARE_CONTENT" ? decision.contentQuery : null, extractedFacts: decision.extracted, allowBookingOffer, offerSlots, bookingDeclinedForNow, substantiveTurns };
 }
 
 export function removeBookingPressure(reply: string, plan: TurnPlan) {

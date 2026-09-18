@@ -13,6 +13,7 @@ const ActionSchema = z.object({
 type MetaError = { error?: { code?: number; message?: string } };
 type MetaTemplate = { name?: string; language?: string; category?: string; status?: string; components?: Array<{ type?: string; text?: string }> };
 type DebugTokenData = { is_valid?: boolean; type?: string; application?: string; expires_at?: number; data_access_expires_at?: number; scopes?: string[]; user_id?: string };
+type MetaPhone = { id?: string; verified_name?: string; code_verification_status?: string; quality_rating?: string };
 
 function version() { return process.env.WHATSAPP_GRAPH_VERSION || process.env.WHATSAPP_API_VERSION || "v26.0"; }
 function wabaId() { return process.env.WHATSAPP_WABA_ID || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || ""; }
@@ -42,6 +43,10 @@ function state() {
     tokenType: settings.metaTokenType || null,
     tokenExpiresAt: settings.metaTokenExpiresAt || null,
     dataAccessExpiresAt: settings.metaDataAccessExpiresAt || null,
+    tokenPermissions: settings.metaTokenPermissions || null,
+    webhookVerified: settings.metaWebhookVerified === "true",
+    wabaSubscribed: settings.metaWabaSubscribed === "true",
+    phoneRegistrationVerified: settings.metaPhoneRegistrationVerified === "true",
     coexistenceDetected: settings.metaCoexistenceDetected === "true",
   };
 }
@@ -108,7 +113,10 @@ export async function POST(request: NextRequest) {
       const tokenType = token.type || "UNKNOWN";
       const tokenExpiresAt = expiryLabel(token.expires_at);
       const dataAccessExpiresAt = expiryLabel(token.data_access_expires_at);
-      setSettings({ metaTokenUsable: "true", metaTokenType: tokenType, metaTokenExpiresAt: tokenExpiresAt, metaDataAccessExpiresAt: dataAccessExpiresAt, metaTokenLastCheckedAt: nowIso() });
+      const requiredPermissions = ["whatsapp_business_management", "whatsapp_business_messaging"];
+      const permissions = token.scopes || [];
+      const permissionState = requiredPermissions.every((permission) => permissions.includes(permission)) ? "verified" : permissions.length ? "missing required permission" : "not returned by Meta";
+      setSettings({ metaTokenUsable: "true", metaTokenType: tokenType, metaTokenExpiresAt: tokenExpiresAt, metaDataAccessExpiresAt: dataAccessExpiresAt, metaTokenPermissions: permissionState, metaTokenLastCheckedAt: nowIso() });
       await graph(`${wabaId()}?fields=id,name,timezone_id,message_template_namespace`);
       return NextResponse.json({ ...state(), connected: true, message: tokenType === "SYSTEM_USER" ? "Durable Meta System User token verified." : "Meta token is usable, but a System User token is recommended to avoid frequent credential replacement." });
     }
@@ -132,6 +140,7 @@ export async function POST(request: NextRequest) {
       const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
       const body = await response.text();
       if (!response.ok || body !== challenge) throw new Error("Public webhook verification did not return Meta's challenge.");
+      setSettings({ metaWebhookVerified: "true", metaWebhookVerifiedAt: nowIso() });
       return NextResponse.json({ ...diagnostics, connected: true, message: "Public webhook verification succeeded." });
     }
 
@@ -144,6 +153,7 @@ export async function POST(request: NextRequest) {
       const callbackBody = await callback.json() as MetaError & { success?: boolean };
       if (!callback.ok || !callbackBody.success) throw Object.assign(new Error(callbackBody.error?.message || "Meta callback registration failed"), { code: callbackBody.error?.code || callback.status });
       await graph(`${wabaId()}/subscribed_apps`, { method: "POST" });
+      setSettings({ metaWebhookVerified: "true", metaWabaSubscribed: "true", metaWebhookRegisteredAt: nowIso() });
       return NextResponse.json({ ...diagnostics, connected: true, action: input.action, result: { callbackRegistered: true, wabaSubscribed: true }, message: "Webhook registered and WABA subscribed to this app." });
     }
 
@@ -154,6 +164,11 @@ export async function POST(request: NextRequest) {
         : `${wabaId()}?fields=id,name,timezone_id,message_template_namespace`;
     const body = await graph(target);
     if (input.action === "templates" && Array.isArray(body.data)) syncTemplates(body.data as MetaTemplate[]);
+    if (input.action === "phone_numbers") {
+      const phone = (body.data as MetaPhone[] | undefined)?.find((item) => item.id === process.env.WHATSAPP_PHONE_NUMBER_ID);
+      setSettings({ metaPhoneRegistrationVerified: phone ? "true" : "false", metaPhoneRegistrationCheckedAt: nowIso() });
+      if (!phone) throw new Error("The configured Phone Number ID was not returned by the configured WABA.");
+    }
     const label = input.action.replace("_", " ");
     return NextResponse.json({ ...diagnostics, connected: true, action: input.action, result: body.data || body, message: `Meta ${label} check completed.` });
   } catch (error) {

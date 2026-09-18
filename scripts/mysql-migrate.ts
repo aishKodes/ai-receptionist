@@ -1,9 +1,11 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
-import { addDays, format } from "date-fns";
 import mysql from "mysql2/promise";
 import knowledge from "@/data/radiance-knowledge.json";
+
+dotenv.config({ path: ".env.local", override: false, quiet: true });
+dotenv.config({ path: ".env", override: false, quiet: true });
 
 if (process.env.DATABASE_PROVIDER !== "mysql") throw new Error("Set DATABASE_PROVIDER=mysql before running production migrations.");
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for MySQL migrations.");
@@ -23,6 +25,7 @@ try {
     ["conversation_state", "primary_objection", "VARCHAR(40)"],
     ["conversation_state", "next_best_action", "VARCHAR(40) NOT NULL DEFAULT 'ANSWER'"],
     ["conversation_state", "next_action_reason", "TEXT"],
+    ["conversation_state", "booking_declined_for_now", "BOOLEAN NOT NULL DEFAULT FALSE"],
     ["conversation_state", "conversion_memory_json", "LONGTEXT"],
     ["provider_usage", "fallback_reason", "VARCHAR(120)"],
   ];
@@ -39,10 +42,9 @@ try {
       [`tr_${item.slug}`, item.name, item.slug, item.category, item.description, knowledge.clinic.safety, now, now]);
   }
   const settings: Record<string, string> = {
-    clinicName: "Radiance Skin & Hair Clinics",
+    clinicName: "Radiance Clinics",
     clinicLocation: "Bhubaneswar",
     timezone: "Asia/Kolkata",
-    appointmentSlotMinutes: "30",
     humanCallScoreThreshold: "85",
     humanLockMinutes: process.env.HUMAN_LOCK_MINUTES || "30",
     autoMarketingDailyLimit: process.env.AUTO_MARKETING_DAILY_LIMIT || "10",
@@ -64,12 +66,7 @@ try {
     await connection.execute(`INSERT INTO content_items (id,type,title,description,url,treatment_slug,tags_json,when_to_send,priority,active,approved_for_ai,approved_for_production,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,1,1,1,?) ON DUPLICATE KEY UPDATE title=VALUES(title),description=VALUES(description),url=VALUES(url),treatment_slug=VALUES(treatment_slug),tags_json=VALUES(tags_json),when_to_send=VALUES(when_to_send),priority=VALUES(priority),active=1,approved_for_ai=1,approved_for_production=1`, [...item, now]);
   }
-  const slotTimes = ["10:00", "10:30", "11:00", "11:30", "12:00", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30"];
-  for (let day = 0; day < 45; day += 1) {
-    const date = format(addDays(new Date(), day), "yyyy-MM-dd");
-    for (const time of slotTimes) await connection.execute("INSERT IGNORE INTO available_slots (id,`date`,`time`,active) VALUES (?,?,?,1)", [`slot_${date}_${time.replace(":", "")}`, date, time]);
-  }
-  console.log(`[MYSQL] Production schema and operational defaults completed (${knowledge.treatments.length} treatments, ${content.length} approved content items, ${45 * slotTimes.length} slots).`);
+  console.log(`[MYSQL] Production schema and approved knowledge completed (${knowledge.treatments.length} treatments, ${content.length} approved content items, no appointment slots until the clinic schedule is configured).`);
 } finally {
   await connection.end();
 }
