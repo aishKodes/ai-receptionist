@@ -16,6 +16,22 @@ const connection = await mysql.createConnection({
 try {
   const migration = fs.readFileSync(path.join(process.cwd(), "migrations/mysql/0001_production.sql"), "utf8");
   await connection.query(migration);
+  const additive: Array<[string, string, string]> = [
+    ["conversation_state", "conversation_phase", "VARCHAR(40) NOT NULL DEFAULT 'DISCOVERY'"],
+    ["conversation_state", "readiness_score", "INT NOT NULL DEFAULT 0"],
+    ["conversation_state", "readiness_reason", "TEXT"],
+    ["conversation_state", "primary_objection", "VARCHAR(40)"],
+    ["conversation_state", "next_best_action", "VARCHAR(40) NOT NULL DEFAULT 'ANSWER'"],
+    ["conversation_state", "next_action_reason", "TEXT"],
+    ["conversation_state", "conversion_memory_json", "LONGTEXT"],
+    ["provider_usage", "fallback_reason", "VARCHAR(120)"],
+  ];
+  for (const [table, column, definition] of additive) {
+    const [rows] = await connection.execute("SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?", [table, column]);
+    if (Number((rows as Array<{ total: number }>)[0].total) === 0) await connection.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  await connection.query("CREATE TABLE IF NOT EXISTS marketing_daily_quota (day VARCHAR(10) PRIMARY KEY, used INT NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+  await connection.query("CREATE TABLE IF NOT EXISTS marketing_patient_cooldown (patient_id VARCHAR(64) PRIMARY KEY, reserved_until VARCHAR(40) NOT NULL, CONSTRAINT fk_marketing_cooldown_patient FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
   const now = new Date().toISOString();
   for (const item of knowledge.treatments) {
     await connection.execute(`INSERT INTO treatments (id,name,slug,category,description,approved_response_guidance,booking_enabled,created_at,updated_at)
@@ -29,6 +45,8 @@ try {
     appointmentSlotMinutes: "30",
     humanCallScoreThreshold: "85",
     humanLockMinutes: process.env.HUMAN_LOCK_MINUTES || "30",
+    autoMarketingDailyLimit: process.env.AUTO_MARKETING_DAILY_LIMIT || "10",
+    marketingOutreachCooldownDays: process.env.MARKETING_OUTREACH_COOLDOWN_DAYS || "7",
     appointmentConfirmation: "true",
     appointmentReminder1: "true",
     appointmentReminder2: "true",

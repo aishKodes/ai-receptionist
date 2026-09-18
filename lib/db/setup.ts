@@ -25,6 +25,8 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS message_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, display_name TEXT, category TEXT NOT NULL DEFAULT 'MARKETING', language TEXT NOT NULL DEFAULT 'en', body TEXT NOT NULL, meta_template_name TEXT, status TEXT NOT NULL DEFAULT 'DRAFT', variables_json TEXT NOT NULL DEFAULT '[]', purpose TEXT, treatment_slug TEXT, active INTEGER NOT NULL DEFAULT 1, last_synced_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, name TEXT NOT NULL, template_id TEXT NOT NULL REFERENCES message_templates(id), status TEXT NOT NULL DEFAULT 'DRAFT', audience_json TEXT NOT NULL DEFAULT '{}', segment TEXT NOT NULL DEFAULT 'eligible_all', scheduled_for TEXT, rate_per_minute INTEGER NOT NULL DEFAULT 10, created_by TEXT NOT NULL DEFAULT 'Front Desk', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, started_at TEXT, completed_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS outbound_messages (id TEXT PRIMARY KEY, campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, template_id TEXT REFERENCES message_templates(id) ON DELETE SET NULL, channel TEXT NOT NULL DEFAULT 'whatsapp', rendered_body TEXT NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'QUEUED', external_message_id TEXT, meta_message_id TEXT, scheduled_for TEXT NOT NULL, sent_at TEXT, delivered_at TEXT, read_at TEXT, replied_at TEXT, failed_at TEXT, failure_code TEXT, failure_message TEXT, error TEXT, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS marketing_daily_quota (day TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS marketing_patient_cooldown (patient_id TEXT PRIMARY KEY REFERENCES patients(id) ON DELETE CASCADE, reserved_until TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, external_id TEXT NOT NULL UNIQUE, event_type TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL, attempt_count INTEGER NOT NULL DEFAULT 1, error TEXT, created_at TEXT NOT NULL, processed_at TEXT)`,
   `CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at)`,
@@ -76,6 +78,14 @@ const additiveColumns: Array<[string, string, string]> = [
   ["outbound_messages", "failure_message", "TEXT"],
   ["webhook_events", "attempt_count", "INTEGER NOT NULL DEFAULT 1"],
   ["webhook_events", "error", "TEXT"],
+  ["conversation_state", "conversation_phase", "TEXT NOT NULL DEFAULT 'DISCOVERY'"],
+  ["conversation_state", "readiness_score", "INTEGER NOT NULL DEFAULT 0"],
+  ["conversation_state", "readiness_reason", "TEXT"],
+  ["conversation_state", "primary_objection", "TEXT"],
+  ["conversation_state", "next_best_action", "TEXT NOT NULL DEFAULT 'ANSWER'"],
+  ["conversation_state", "next_action_reason", "TEXT"],
+  ["conversation_state", "conversion_memory_json", "TEXT NOT NULL DEFAULT '{}'"],
+  ["provider_usage", "fallback_reason", "TEXT"],
 ];
 
 function ensureAdditiveColumns() {
@@ -101,6 +111,8 @@ function ensureOperationalDefaults() {
   setting.run("appointmentSlotMinutes", "30", now);
   setting.run("humanCallScoreThreshold", "85", now);
   setting.run("humanLockMinutes", process.env.HUMAN_LOCK_MINUTES || "30", now);
+  setting.run("autoMarketingDailyLimit", process.env.AUTO_MARKETING_DAILY_LIMIT || "10", now);
+  setting.run("marketingOutreachCooldownDays", process.env.MARKETING_OUTREACH_COOLDOWN_DAYS || "7", now);
   db.prepare(`INSERT OR IGNORE INTO conversation_state (conversation_id,created_at,updated_at)
     SELECT id,?,? FROM conversations`).run(now, now);
 }
@@ -131,7 +143,7 @@ export function seedDatabase(force = false) {
 
   const seed = db.transaction(() => {
     db.pragma("foreign_keys = OFF");
-    for (const table of ["outbound_messages", "campaigns", "message_templates", "lead_imports", "provider_usage", "audit_logs", "lead_score_events", "human_tasks", "webhook_events", "scheduled_jobs", "appointments", "messages", "ai_events", "conversations", "patients", "content_items", "treatments", "available_slots", "settings"]) db.prepare(`DELETE FROM ${table}`).run();
+    for (const table of ["marketing_patient_cooldown", "marketing_daily_quota", "outbound_messages", "campaigns", "message_templates", "lead_imports", "provider_usage", "audit_logs", "lead_score_events", "human_tasks", "webhook_events", "scheduled_jobs", "appointments", "messages", "ai_events", "conversations", "patients", "content_items", "treatments", "available_slots", "settings"]) db.prepare(`DELETE FROM ${table}`).run();
     db.pragma("foreign_keys = ON");
     const now = nowIso();
     const insertTreatment = db.prepare("INSERT INTO treatments (id,name,slug,category,description,approved_response_guidance,booking_enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");

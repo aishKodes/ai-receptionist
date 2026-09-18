@@ -88,6 +88,13 @@ export const conversationState = sqliteTable("conversation_state", {
   lastContentSentAt: text("last_content_sent_at"),
   aiMode: text("ai_mode").notNull().default("AI"),
   humanLockUntil: text("human_lock_until"),
+  conversationPhase: text("conversation_phase").notNull().default("DISCOVERY"),
+  readinessScore: integer("readiness_score").notNull().default(0),
+  readinessReason: text("readiness_reason"),
+  primaryObjection: text("primary_objection"),
+  nextBestAction: text("next_best_action").notNull().default("ANSWER"),
+  nextActionReason: text("next_action_reason"),
+  conversionMemoryJson: text("conversion_memory_json").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -222,6 +229,7 @@ export const providerUsage = sqliteTable("provider_usage", {
   outputTokens: integer("output_tokens"),
   estimatedCostUsd: text("estimated_cost_usd"),
   errorCode: text("error_code"),
+  fallbackReason: text("fallback_reason"),
   createdAt: text("created_at").notNull(),
 });
 

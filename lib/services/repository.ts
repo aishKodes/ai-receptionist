@@ -1,6 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { getDatabase, makeId, nowIso } from "@/db";
 import { createSchema } from "@/lib/db/setup";
+import { estimateModelCostUsd } from "@/lib/ai/cost";
 
 let initialized = false;
 export function ready() {
@@ -53,23 +54,27 @@ export function treatmentCategory(slug: string | null) {
 }
 
 export function selectContent(conversationId: string, treatmentSlug: string | null, query: string | null): null | Record<string, unknown> {
-  if (!treatmentSlug) return null;
   const db = ready();
   const sent = new Set((db.prepare("SELECT content_item_id AS id FROM messages WHERE conversation_id = ? AND content_item_id IS NOT NULL").all(conversationId) as Array<{ id: string }>).map((row) => row.id));
   const candidates = db.prepare("SELECT id,type,title,description,url,thumbnail_url AS thumbnailUrl,treatment_slug AS treatmentSlug,tags_json AS tagsJson,when_to_send AS whenToSend,priority,active,approved_for_ai AS approvedForAi,approved_for_production AS approvedForProduction FROM content_items WHERE active = 1 AND approved_for_ai = 1 AND approved_for_production = 1 AND url NOT LIKE '%example.com%' AND url NOT LIKE '%localhost%' AND url NOT LIKE '%placeholder%' AND url NOT LIKE '%/demo/%' AND (treatment_slug = ? OR treatment_slug IS NULL) ORDER BY priority DESC").all(treatmentSlug) as Array<Record<string, unknown>>;
-  const terms = (query || "").toLowerCase().split(/\W+/).filter((term) => term.length > 2);
+  const terms = (query || "").toLowerCase().split(/\W+/).filter((term) => term.length > 3 && !["please", "could", "would", "share", "about", "with", "this", "that"].includes(term));
+  if (!terms.length) return null;
   return candidates.filter((item) => !sent.has(String(item.id))).map((item): Record<string, unknown> => {
     const tags = JSON.parse(String(item.tagsJson || "[]")) as string[];
     const haystack = `${item.title} ${item.description} ${tags.join(" ")}`.toLowerCase();
     const matches = terms.filter((term) => haystack.includes(term)).length;
-    return { ...item, tags, rank: Number(item.priority) + matches * 2 + (item.treatmentSlug === treatmentSlug ? 10 : 0) };
-  }).sort((a, b) => Number(b.rank) - Number(a.rank))[0] ?? null;
+    return { ...item, tags, matches, rank: Number(item.priority) + matches * 2 + (item.treatmentSlug === treatmentSlug ? 10 : 0) };
+  }).filter((item) => Number(item.matches) >= 2).sort((a, b) => Number(b.rank) - Number(a.rank))[0] ?? null;
 }
 
 export function getAvailableSlots(date: string, period?: "morning" | "evening" | null) {
   const db = ready();
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).map((part) => [part.type, part.value]));
+  const today = `${parts.year}-${parts.month}-${parts.day}`;
+  if (date < today) return [];
+  const earliestMinutes = date === today ? Number(parts.hour) * 60 + Number(parts.minute) + 30 : 0;
   const rows = db.prepare(`SELECT s.time FROM available_slots s WHERE s.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.status = 'confirmed' AND substr(a.date_time,1,10) = s.date AND substr(a.date_time,12,5) = s.time) ORDER BY s.time`).all(date) as Array<{ time: string }>;
-  return rows.map((row) => row.time).filter((time) => period === "evening" ? time >= "16:00" : period === "morning" ? time < "13:00" : true);
+  return rows.map((row) => row.time).filter((time) => { const [hour, minute] = time.split(":").map(Number); return hour * 60 + minute >= earliestMinutes && (period === "evening" ? time >= "16:00" : period === "morning" ? time < "13:00" : true); });
 }
 
 export function bookAppointment(patientId: string, conversationId: string, treatmentSlug: string | null, date: string, time: string) {
@@ -142,7 +147,7 @@ export function getConversationState(conversationId: string) {
   const db = ready();
   const now = nowIso();
   db.prepare("INSERT OR IGNORE INTO conversation_state (conversation_id,offered_slots_json,sent_content_ids_json,created_at,updated_at) VALUES (?,'[]','[]',?,?)").run(conversationId, now, now);
-  return db.prepare(`SELECT conversation_id AS conversationId,preferred_language AS preferredLanguage,active_flow AS activeFlow,pending_question AS pendingQuestion,pending_action AS pendingAction,last_assistant_question AS lastAssistantQuestion,requested_date AS requestedDate,requested_time AS requestedTime,requested_day_part AS requestedDayPart,offered_slots_json AS offeredSlotsJson,selected_slot AS selectedSlot,appointment_id AS appointmentId,current_concern AS currentConcern,current_treatment AS currentTreatment,previous_treatment AS previousTreatment,rolling_summary AS rollingSummary,sent_content_ids_json AS sentContentIdsJson,last_content_sent_at AS lastContentSentAt,ai_mode AS aiMode,human_lock_until AS humanLockUntil,created_at AS createdAt,updated_at AS updatedAt FROM conversation_state WHERE conversation_id=?`).get(conversationId) as Record<string, unknown>;
+  return db.prepare(`SELECT conversation_id AS conversationId,preferred_language AS preferredLanguage,active_flow AS activeFlow,pending_question AS pendingQuestion,pending_action AS pendingAction,last_assistant_question AS lastAssistantQuestion,requested_date AS requestedDate,requested_time AS requestedTime,requested_day_part AS requestedDayPart,offered_slots_json AS offeredSlotsJson,selected_slot AS selectedSlot,appointment_id AS appointmentId,current_concern AS currentConcern,current_treatment AS currentTreatment,previous_treatment AS previousTreatment,rolling_summary AS rollingSummary,sent_content_ids_json AS sentContentIdsJson,last_content_sent_at AS lastContentSentAt,ai_mode AS aiMode,human_lock_until AS humanLockUntil,conversation_phase AS conversationPhase,readiness_score AS readinessScore,readiness_reason AS readinessReason,primary_objection AS primaryObjection,next_best_action AS nextBestAction,next_action_reason AS nextActionReason,conversion_memory_json AS conversionMemoryJson,created_at AS createdAt,updated_at AS updatedAt FROM conversation_state WHERE conversation_id=?`).get(conversationId) as Record<string, unknown>;
 }
 
 export function updateConversationState(conversationId: string, fields: Record<string, unknown>) {
@@ -155,6 +160,9 @@ export function updateConversationState(conversationId: string, fields: Record<s
     currentTreatment: "current_treatment", previousTreatment: "previous_treatment", rollingSummary: "rolling_summary",
     sentContentIdsJson: "sent_content_ids_json", lastContentSentAt: "last_content_sent_at", aiMode: "ai_mode",
     humanLockUntil: "human_lock_until",
+    conversationPhase: "conversation_phase", readinessScore: "readiness_score", readinessReason: "readiness_reason",
+    primaryObjection: "primary_objection", nextBestAction: "next_best_action", nextActionReason: "next_action_reason",
+    conversionMemoryJson: "conversion_memory_json",
   };
   const entries = Object.entries(fields).filter(([key, value]) => key in allowed && value !== undefined);
   if (!entries.length) return getConversationState(conversationId);
@@ -213,11 +221,26 @@ export function getDashboardState(selectedPatientId?: string | null) {
   const humanTasks = db.prepare("SELECT h.id,h.patient_id AS patientId,h.conversation_id AS conversationId,h.type,h.priority,h.status,h.title,h.reason,h.suggested_reply AS suggestedReply,h.assigned_to AS assignedTo,h.due_at AS dueAt,h.resolved_at AS resolvedAt,h.created_at AS createdAt,h.updated_at AS updatedAt,p.name AS patientName FROM human_tasks h JOIN patients p ON p.id=h.patient_id ORDER BY CASE h.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,h.created_at DESC").all() as Array<Record<string, unknown>>;
   const scoreEvents = selectedId ? db.prepare("SELECT id,previous_score AS previousScore,new_score AS newScore,reason_codes_json AS reasonCodesJson,created_at AS createdAt FROM lead_score_events WHERE patient_id=? ORDER BY created_at DESC").all(selectedId) : [];
   const audit = selectedId ? db.prepare("SELECT id,actor,action,entity_type AS entityType,entity_id AS entityId,summary,metadata_json AS metadataJson,created_at AS createdAt FROM audit_logs WHERE entity_id=? OR json_extract(metadata_json,'$.patientId')=? ORDER BY created_at DESC LIMIT 100").all(selectedId, selectedId) : [];
-  const outreachHistory = selectedId ? db.prepare("SELECT o.id,o.campaign_id AS campaignId,o.status,o.rendered_body AS renderedBody,o.scheduled_for AS scheduledFor,o.sent_at AS sentAt,c.name AS campaignName FROM outbound_messages o LEFT JOIN campaigns c ON c.id=o.campaign_id WHERE o.patient_id=? ORDER BY o.created_at DESC").all(selectedId) : [];
+  const outreachHistory = selectedId ? db.prepare("SELECT o.id,o.campaign_id AS campaignId,o.status,o.rendered_body AS renderedBody,o.scheduled_for AS scheduledFor,o.sent_at AS sentAt,c.name AS campaignName,t.category AS templateCategory FROM outbound_messages o LEFT JOIN campaigns c ON c.id=o.campaign_id LEFT JOIN message_templates t ON t.id=o.template_id WHERE o.patient_id=? ORDER BY o.created_at DESC").all(selectedId) : [];
   const campaigns = db.prepare("SELECT c.id,c.name,c.status,c.scheduled_for AS scheduledFor,c.rate_per_minute AS ratePerMinute,c.created_at AS createdAt,t.name AS templateName,COUNT(o.id) AS total,SUM(CASE WHEN o.status IN ('SENT','DELIVERED','READ','REPLIED') THEN 1 ELSE 0 END) AS sent,SUM(CASE WHEN o.status='DELIVERED' THEN 1 ELSE 0 END) AS delivered,SUM(CASE WHEN o.status='READ' THEN 1 ELSE 0 END) AS `read`,SUM(CASE WHEN o.status='REPLIED' THEN 1 ELSE 0 END) AS replied,SUM(CASE WHEN o.status='FAILED' THEN 1 ELSE 0 END) AS failed FROM campaigns c JOIN message_templates t ON t.id=c.template_id LEFT JOIN outbound_messages o ON o.campaign_id=c.id GROUP BY c.id ORDER BY c.created_at DESC").all();
-  const providerMetrics = db.prepare("SELECT provider,COUNT(*) AS requests,ROUND(AVG(latency_ms)) AS avgLatency,SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) AS errors,SUM(CASE WHEN status='FALLBACK' THEN 1 ELSE 0 END) AS fallbacks,ROUND(SUM(CAST(COALESCE(estimated_cost_usd,'0') AS DECIMAL(18,6))),6) AS estimatedCost FROM provider_usage WHERE date(created_at)=date('now') GROUP BY provider").all();
+  const istDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const dayStart = new Date(`${istDay}T00:00:00+05:30`);
+  const dayEnd = new Date(dayStart.getTime() + 86400000);
+  const providerMetrics = db.prepare("SELECT provider,model,COUNT(*) AS requests,ROUND(AVG(latency_ms)) AS avgLatency,SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) AS errors,SUM(CASE WHEN status='FALLBACK' THEN 1 ELSE 0 END) AS fallbacks,SUM(input_tokens) AS inputTokens,SUM(output_tokens) AS outputTokens,ROUND(SUM(CAST(COALESCE(estimated_cost_usd,'0') AS DECIMAL(18,8))),8) AS estimatedCost FROM provider_usage WHERE created_at>=? AND created_at<? GROUP BY provider,model").all(dayStart.toISOString(), dayEnd.toISOString());
+  const funnelCounts = db.prepare(`SELECT
+    SUM(CASE WHEN (SELECT COUNT(*) FROM messages m WHERE m.patient_id=p.id AND m.sender_type='patient') >= 2 THEN 1 ELSE 0 END) AS meaningfullyEngaged,
+    SUM(CASE WHEN p.treatment_slug IS NOT NULL THEN 1 ELSE 0 END) AS qualified,
+    SUM(CASE WHEN cs.readiness_score >= 80 THEN 1 ELSE 0 END) AS highIntent,
+    SUM(CASE WHEN cs.conversion_memory_json LIKE '%"appointmentDiscussed":true%' THEN 1 ELSE 0 END) AS consultationDiscussed,
+    SUM(CASE WHEN EXISTS (SELECT 1 FROM appointments a WHERE a.patient_id=p.id AND a.status='completed') THEN 1 ELSE 0 END) AS completed,
+    SUM(CASE WHEN EXISTS (SELECT 1 FROM human_tasks h WHERE h.patient_id=p.id AND h.type='CALL') THEN 1 ELSE 0 END) AS humanCall
+    FROM patients p LEFT JOIN conversations c ON c.patient_id=p.id LEFT JOIN conversation_state cs ON cs.conversation_id=c.id`).get() as Record<string, number>;
+  const outreachCounts = db.prepare("SELECT COUNT(*) AS outreachSent,SUM(CASE WHEN status='REPLIED' THEN 1 ELSE 0 END) AS outreachReplies FROM outbound_messages WHERE status IN ('SENT','DELIVERED','READ','REPLIED')").get() as Record<string, number>;
+  const aiConversationCount = (db.prepare("SELECT COUNT(DISTINCT conversation_id) AS count FROM messages WHERE sender_type='ai' AND direction='outbound'").get() as { count: number }).count;
+  const marketingUsed = (db.prepare("SELECT used FROM marketing_daily_quota WHERE day=?").get(istDay) as { used: number } | undefined)?.used ?? 0;
   const provider = (process.env.AI_PRIMARY_PROVIDER || process.env.AI_PROVIDER || "mock");
-  return { patients, selected: selected ? { ...selected, events, sentContent, scoreEvents, audit, outreachHistory } : null, appointments, contents, jobs, humanTasks, campaigns, providerMetrics, settings: getSettings(), analytics: { ...summaryCounts, sentFollowups, sourceCounts, stageCounts }, provider, serverTime: nowIso() };
+  const settings = getSettings();
+  return { patients, selected: selected ? { ...selected, events, sentContent, scoreEvents, audit, outreachHistory } : null, appointments, contents, jobs, humanTasks, campaigns, providerMetrics, settings: { ...settings, autoMarketingDailyLimit: process.env.AUTO_MARKETING_DAILY_LIMIT ?? settings.autoMarketingDailyLimit ?? "10", marketingOutreachCooldownDays: process.env.MARKETING_OUTREACH_COOLDOWN_DAYS ?? settings.marketingOutreachCooldownDays ?? "7" }, analytics: { ...summaryCounts, ...funnelCounts, ...outreachCounts, aiConversations: aiConversationCount, marketingUsed, sentFollowups, sourceCounts, stageCounts }, provider, serverTime: nowIso() };
 }
 
 export function addAudit(action: string, entityType: string, entityId: string | null, summary: string, actor: "SYSTEM" | "AI" | "RECEPTION" | "ADMIN" = "SYSTEM", metadata: Record<string, unknown> = {}) {
@@ -243,15 +266,21 @@ export function createHumanTask(args: { patientId: string; conversationId?: stri
   return { ...task, duplicate: false };
 }
 
-export function updateHumanTask(taskId: string, status: "OPEN" | "ASSIGNED" | "CONTACTED" | "SNOOZED" | "RESOLVED", assignedTo?: string | null, resolution?: string | null) {
+export function updateHumanTask(taskId: string, status: "OPEN" | "ASSIGNED" | "CONTACTED" | "SNOOZED" | "RESOLVED" | "NOT_INTERESTED", assignedTo?: string | null, resolution?: string | null) {
   const now = nowIso();
-  const result = ready().prepare("UPDATE human_tasks SET status=?,assigned_to=COALESCE(?,assigned_to),resolved_at=CASE WHEN ?='RESOLVED' THEN ? ELSE resolved_at END,resolved_by=CASE WHEN ?='RESOLVED' THEN COALESCE(?, 'Front Desk') ELSE resolved_by END,resolution=CASE WHEN ?='RESOLVED' THEN COALESCE(?, 'Resolved by reception') ELSE resolution END,updated_at=? WHERE id=?").run(status, assignedTo ?? null, status, now, status, assignedTo ?? null, status, resolution ?? null, now, taskId);
+  const task = ready().prepare("SELECT patient_id AS patientId FROM human_tasks WHERE id=?").get(taskId) as { patientId: string } | undefined;
+  const result = ready().prepare("UPDATE human_tasks SET status=?,assigned_to=COALESCE(?,assigned_to),resolved_at=CASE WHEN ? IN ('RESOLVED','NOT_INTERESTED') THEN ? ELSE resolved_at END,resolved_by=CASE WHEN ? IN ('RESOLVED','NOT_INTERESTED') THEN COALESCE(?, 'Front Desk') ELSE resolved_by END,resolution=CASE WHEN ? IN ('RESOLVED','NOT_INTERESTED') THEN COALESCE(?, 'Resolved by reception') ELSE resolution END,updated_at=? WHERE id=?").run(status, assignedTo ?? null, status, now, status, assignedTo ?? null, status, resolution ?? null, now, taskId);
   if (!result.changes) throw new Error("Human task not found.");
+  if (status === "NOT_INTERESTED" && task) {
+    updatePatient(task.patientId, { leadStage: "not_interested", nextFollowupAt: null });
+    ready().prepare("UPDATE outbound_messages SET status='CANCELLED',error='Patient marked not interested' WHERE patient_id=? AND status='QUEUED'").run(task.patientId);
+  }
   addAudit("HUMAN_TASK_UPDATED", "human_task", taskId, `Task moved to ${status}`, "RECEPTION");
 }
 
-export function recordProviderUsage(args: { patientId?: string | null; conversationId?: string | null; provider: string; model: string; operation: string; status: string; latencyMs: number; inputTokens?: number | null; outputTokens?: number | null; estimatedCostUsd?: number | null; errorCode?: string | null }) {
-  ready().prepare("INSERT INTO provider_usage (id,patient_id,conversation_id,provider,model,operation,status,latency_ms,input_tokens,output_tokens,estimated_cost_usd,error_code,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(makeId("usage"), args.patientId ?? null, args.conversationId ?? null, args.provider, args.model, args.operation, args.status, args.latencyMs, args.inputTokens ?? null, args.outputTokens ?? null, args.estimatedCostUsd == null ? null : String(args.estimatedCostUsd), args.errorCode ?? null, nowIso());
+export function recordProviderUsage(args: { patientId?: string | null; conversationId?: string | null; provider: string; model: string; operation: string; status: string; latencyMs: number; inputTokens?: number | null; outputTokens?: number | null; estimatedCostUsd?: number | null; errorCode?: string | null; fallbackReason?: string | null }) {
+  const estimatedCost = args.estimatedCostUsd ?? estimateModelCostUsd(args.model, args.inputTokens, args.outputTokens);
+  ready().prepare("INSERT INTO provider_usage (id,patient_id,conversation_id,provider,model,operation,status,latency_ms,input_tokens,output_tokens,estimated_cost_usd,error_code,fallback_reason,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(makeId("usage"), args.patientId ?? null, args.conversationId ?? null, args.provider, args.model, args.operation, args.status, args.latencyMs, args.inputTokens ?? null, args.outputTokens ?? null, estimatedCost == null ? null : String(estimatedCost), args.errorCode ?? null, args.fallbackReason ?? null, nowIso());
 }
 
 export function ensurePatientForChannel(args: { phone: string; name?: string | null; whatsappId?: string | null; channel: string }) {

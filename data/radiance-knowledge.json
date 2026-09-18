@@ -5,6 +5,29 @@
     "safety": "Radiance AI Reception provides general information and booking support only. A qualified doctor must assess diagnosis, suitability and expected outcomes.",
     "costGuidance": "The final cost depends on the concern, treatment plan and, where applicable, procedure extent. The clinic team can provide an accurate estimate after assessment."
   },
+  "doctors": [
+    { "name": "Dr. Satyarth Prakash", "experience": "More than 30 years", "source": "Clinic owner-provided detail", "use": "General clinic information only; do not claim this doctor reviewed an individual chat or recommended a treatment." }
+  ],
+  "appointment": {
+    "booking": "Only offer slots returned by the live clinic calendar. A booking is confirmed only after the backend creates an appointment.",
+    "changes": "The receptionist may help cancel or reschedule a confirmed consultation; never claim a change occurred before the backend confirms it."
+  },
+  "pricing": {
+    "approvedNumericRanges": [],
+    "guidance": "No numeric clinic price or range is approved in this knowledge base. Explain that final cost depends on the concern, treatment plan and procedure extent; an assessment is needed for an accurate quote."
+  },
+  "preparation": {
+    "guidance": "No treatment-specific preparation instructions are approved in this knowledge base. Refer clinical preparation questions to reception or a doctor."
+  },
+  "faqs": [
+    { "question": "Can you tell me the exact treatment price?", "approvedAnswer": "No fixed or numeric price is approved here. The clinic can estimate accurately after assessment of the concern and treatment plan." },
+    { "question": "Can you tell whether a treatment is right for me?", "approvedAnswer": "Suitability requires a qualified doctor's assessment; the receptionist cannot diagnose or guarantee an outcome." },
+    { "question": "Is a hair transplant guaranteed?", "approvedAnswer": "No result is guaranteed. Suitability, planning and expected outcome require doctor assessment." }
+  ],
+  "content": [
+    { "title": "Radiance Clinics YouTube Channel", "whenUseful": "Only when a patient asks for official clinic videos or educational resources." },
+    { "title": "Hair transplant guide", "whenUseful": "Only when a patient explicitly asks for a hair-transplant guide or video." }
+  ],
   "treatments": [
     { "name": "Hair Loss", "slug": "hair_loss", "category": "Hair", "description": "Evaluation and care options for ongoing shedding, thinning and reduced density." },
     { "name": "Hair Transplant", "slug": "hair_transplant", "category": "Hair", "description": "A consultation-led surgical hair restoration option. Suitability and graft planning require doctor assessment." },

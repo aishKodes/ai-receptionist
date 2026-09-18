@@ -55,6 +55,7 @@ describe("primary end-to-end production pipeline", () => {
     context = getPatientContext("pat_rahul")!;
     const recommended = context.messages.find((message) => message.contentItemId);
     expect(recommended?.mediaUrl).toBe("https://www.youtube.com/watch?v=8qYMw935MF8");
+    expect(String(recommended?.content)).not.toMatch(/arrange a consultation|would you like to book/i);
     expect(JSON.parse(String(recommended?.metadataJson))).toMatchObject({ approvedForProduction: true });
 
     await processPatientMessage("pat_rahul", "How much does it cost?");

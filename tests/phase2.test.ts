@@ -47,9 +47,26 @@ describe("AI provider router", () => {
       expect(result.provider.name).toBe("gemini"); expect(result.fallbackUsed).toBe(true);
     }
   });
+  it("uses language fallback when the primary replies in the wrong script", async () => {
+    const result = await routeReceptionDecision({ ...input, patient: { preferredLanguage: "HINDI" } }, {}, {
+      primary: new StubProvider("deepseek", "test-deepseek", goodDecision),
+      fallback: new StubProvider("gemini", "test-gemini-lite", { ...goodDecision, reply: "ज़रूर, मैं आपकी मदद करूँगा।" }),
+    });
+    expect(result.provider.model).toBe("test-gemini-lite");
+    expect(result.fallbackReason).toBe("LANGUAGE_MISMATCH");
+  });
   it("uses the safe mock when both providers are unavailable", async () => {
     const result = await routeReceptionDecision(input, {}, { primary: new StubProvider("deepseek", "test", new Error("down")), fallback: new StubProvider("gemini", "test", new Error("down")) });
     expect(result.provider.name).toBe("mock"); expect(result.decision.reply).toBeTruthy();
+  });
+  it("uses the complex tier only after a difficult fallback remains uncertain", async () => {
+    const result = await routeReceptionDecision(input, { complex: true }, {
+      primary: new StubProvider("deepseek", "test-deepseek", new Error("invalid JSON")),
+      fallback: new StubProvider("gemini", "test-gemini-lite", { ...goodDecision, intentConfidence: 0.35 }),
+      complex: new StubProvider("gemini", "test-gemini-complex", goodDecision),
+    });
+    expect(result.provider.model).toBe("test-gemini-complex");
+    expect(result.fallbackReason).toBe("COMPLEX_LOW_CONFIDENCE");
   });
 });
 
@@ -81,6 +98,7 @@ describe("outreach, appointments, and human mode", () => {
     expect(outreachEligibility({ phone: "+919876543210", whatsappOptInStatus: "REVOKED", doNotContact: 1 }).reason).toBe("OPTED_OUT");
     const db = getSqlite();
     db.prepare("UPDATE patients SET whatsapp_opt_in_status='CONFIRMED',do_not_contact=0,invalid_phone=0 WHERE id='pat_rahul'").run();
+    db.prepare("UPDATE message_templates SET status='APPROVED',meta_template_name='general_reengagement_v1' WHERE id='tpl_general_reengagement'").run();
     const campaignId = createCampaign({ name: "Phase 2 test", templateId: "tpl_general_reengagement" });
     const started = startCampaign(campaignId);
     expect(started.queued).toBeGreaterThanOrEqual(1);
@@ -89,7 +107,7 @@ describe("outreach, appointments, and human mode", () => {
     expect((await processOutboundOnce()).sent).toBeGreaterThanOrEqual(1);
   });
   it("prevents double booking, reschedules, and cancels old reminders", () => {
-    const date = getSqlite().prepare("SELECT date FROM available_slots WHERE time='10:00' ORDER BY date LIMIT 1").get() as { date: string };
+    const date = getSqlite().prepare("SELECT date FROM available_slots WHERE time='10:00' ORDER BY date DESC LIMIT 1").get() as { date: string };
     expect(getAvailableSlots(date.date)).toContain("10:00");
     const one = bookAppointment("pat_rahul", "con_rahul", "hair_transplant", date.date, "10:00"); scheduleAppointmentJobs(one);
     expect(() => bookAppointment("pat_ananya", "con_ananya", "acne_scars", date.date, "10:00")).toThrow();

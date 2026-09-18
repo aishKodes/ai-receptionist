@@ -7,9 +7,11 @@ import { RemoteProvider } from "./providers/remote";
 export function providerStatus() {
   const legacy = process.env.AI_PROVIDER?.toLowerCase();
   const primaryProvider = (legacy === "mock" ? "mock" : process.env.AI_PRIMARY_PROVIDER || legacy || "deepseek").toLowerCase();
-  const primaryModel = process.env.AI_PRIMARY_MODEL || process.env.AI_MODEL || (primaryProvider === "deepseek" ? "deepseek-chat" : primaryProvider === "gemini" ? "gemini-3.6-flash" : "Radiance deterministic rules");
-  const fallbackProvider = (process.env.AI_FALLBACK_PROVIDER || "gemini").toLowerCase();
-  const fallbackModel = process.env.AI_FALLBACK_MODEL || (fallbackProvider === "gemini" ? "gemini-3.6-flash" : "deepseek-chat");
+  const primaryModel = process.env.AI_PRIMARY_MODEL || process.env.AI_MODEL || (primaryProvider === "deepseek" ? "deepseek-flash" : primaryProvider === "gemini" ? "gemini-3.1-flash-lite" : "Radiance deterministic rules");
+  const fallbackProvider = (process.env.AI_LANGUAGE_FALLBACK_PROVIDER || process.env.AI_FALLBACK_PROVIDER || "gemini").toLowerCase();
+  const fallbackModel = process.env.AI_LANGUAGE_FALLBACK_MODEL || process.env.AI_FALLBACK_MODEL || "gemini-3.1-flash-lite";
+  const complexProvider = (process.env.AI_COMPLEX_FALLBACK_PROVIDER || "gemini").toLowerCase();
+  const complexModel = process.env.AI_COMPLEX_FALLBACK_MODEL || "gemini-3.8-flash";
   const keyFor = (name: string) => name === "mock" || Boolean(name === "deepseek" ? process.env.DEEPSEEK_API_KEY : name === "gemini" ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY);
   return {
     configured: primaryProvider,
@@ -18,6 +20,7 @@ export function providerStatus() {
     hasKey: keyFor(primaryProvider),
     primary: { provider: keyFor(primaryProvider) ? primaryProvider : "mock", model: keyFor(primaryProvider) ? primaryModel : "Radiance deterministic rules", configured: keyFor(primaryProvider) },
     fallback: { provider: keyFor(fallbackProvider) ? fallbackProvider : "mock", model: keyFor(fallbackProvider) ? fallbackModel : "Radiance deterministic rules", enabled: process.env.AI_ALLOW_FALLBACK !== "false", configured: keyFor(fallbackProvider) },
+    complex: { provider: keyFor(complexProvider) ? complexProvider : "mock", model: keyFor(complexProvider) ? complexModel : "Radiance deterministic rules", enabled: process.env.AI_ALLOW_FALLBACK !== "false", configured: keyFor(complexProvider) },
   };
 }
 

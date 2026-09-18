@@ -15,10 +15,10 @@ export type Job = { id: string; patientId: string; conversationId: string; appoi
 
 export type DashboardState = {
   patients: Patient[];
-  selected: null | { patient: Patient; conversation: Record<string, unknown>; messages: Message[]; appointment: Appointment | null; events: AIEvent[]; sentContent: ContentItem[]; scoreEvents: Array<{ id: string; previousScore: number; newScore: number; reasonCodesJson: string; createdAt: string }>; audit: Array<Record<string, unknown>>; outreachHistory: Array<Record<string, unknown>> };
+  selected: null | { patient: Patient; conversation: Record<string, unknown>; state: Record<string, unknown>; messages: Message[]; appointment: Appointment | null; events: AIEvent[]; sentContent: ContentItem[]; scoreEvents: Array<{ id: string; previousScore: number; newScore: number; reasonCodesJson: string; createdAt: string }>; audit: Array<Record<string, unknown>>; outreachHistory: Array<Record<string, unknown>> };
   appointments: Appointment[]; contents: ContentItem[]; jobs: Job[]; settings: Record<string, string>;
   humanTasks: Array<{ id: string; patientId: string; conversationId?: string; type: string; priority: string; status: string; title: string; reason?: string; suggestedReply?: string; patientName: string; createdAt: string }>;
-  campaigns: Array<Record<string, unknown>>; providerMetrics: Array<{ provider: string; requests: number; avgLatency: number; errors: number; fallbacks: number; estimatedCost: number }>;
-  analytics: { total: number; hot: number; booked: number; human: number; sentFollowups: number; sourceCounts: Array<{ source: string; count: number }>; stageCounts: Array<{ stage: string; count: number }> };
+  campaigns: Array<Record<string, unknown>>; providerMetrics: Array<{ provider: string; model: string; requests: number; avgLatency: number; errors: number; fallbacks: number; inputTokens: number; outputTokens: number; estimatedCost: number }>;
+  analytics: { total: number; hot: number; booked: number; human: number; meaningfullyEngaged: number; qualified: number; highIntent: number; consultationDiscussed: number; completed: number; humanCall: number; outreachSent: number; outreachReplies: number; aiConversations: number; marketingUsed: number; sentFollowups: number; sourceCounts: Array<{ source: string; count: number }>; stageCounts: Array<{ stage: string; count: number }> };
   provider: string; serverTime: string;
 };

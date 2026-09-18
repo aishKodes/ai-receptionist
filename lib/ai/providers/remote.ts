@@ -36,41 +36,54 @@ export class RemoteProvider implements AIProvider {
   lastUsage?: { inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number };
   constructor(public name: RemoteName, public model: string, private key: string) {}
 
+  private addUsage(inputTokens?: number, outputTokens?: number) {
+    this.lastUsage = { inputTokens: (this.lastUsage?.inputTokens || 0) + (inputTokens || 0), outputTokens: (this.lastUsage?.outputTokens || 0) + (outputTokens || 0) };
+  }
+
+  private async request(url: string, init: RequestInit) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(12000) });
+      if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 1) return response;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    throw new Error("Provider request failed.");
+  }
+
   private async generateText(input: string, system = RECEPTION_SYSTEM_PROMPT) {
-    const signal = AbortSignal.timeout(12000);
     if (this.name === "openai") {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST", signal,
+      const response = await this.request("https://api.openai.com/v1/responses", {
+        method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.key}` },
         body: JSON.stringify({ model: this.model, instructions: system, input, reasoning: { effort: "low" }, text: { verbosity: "low" } }),
       });
       if (!response.ok) throw new Error(`OpenAI request failed (${response.status})`);
       const json = await response.json() as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: { input_tokens?: number; output_tokens?: number } };
-      this.lastUsage = { inputTokens: json.usage?.input_tokens, outputTokens: json.usage?.output_tokens };
+      this.addUsage(json.usage?.input_tokens, json.usage?.output_tokens);
       return json.output_text || json.output?.flatMap((item) => item.content || []).map((item) => item.text || "").join("") || "";
     }
     if (this.name === "gemini") {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${encodeURIComponent(this.key)}`, {
-        method: "POST", signal, headers: { "Content-Type": "application/json" },
+      const response = await this.request(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${encodeURIComponent(this.key)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: input }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.3 } }),
       });
       if (!response.ok) throw new Error(`Gemini request failed (${response.status})`);
-      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } };
-      this.lastUsage = { inputTokens: json.usageMetadata?.promptTokenCount, outputTokens: json.usageMetadata?.candidatesTokenCount };
+      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number } };
+      this.addUsage(json.usageMetadata?.promptTokenCount, (json.usageMetadata?.candidatesTokenCount || 0) + (json.usageMetadata?.thoughtsTokenCount || 0));
       return json.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
     }
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST", signal,
+    const response = await this.request("https://api.deepseek.com/chat/completions", {
+      method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.key}` },
-      body: JSON.stringify({ model: this.model, response_format: { type: "json_object" }, temperature: 0.3, messages: [{ role: "system", content: system }, { role: "user", content: input }] }),
+      body: JSON.stringify({ model: this.model, thinking: { type: "disabled" }, response_format: { type: "json_object" }, temperature: 0.3, messages: [{ role: "system", content: system }, { role: "user", content: input }] }),
     });
     if (!response.ok) throw new Error(`DeepSeek request failed (${response.status})`);
     const json = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-    this.lastUsage = { inputTokens: json.usage?.prompt_tokens, outputTokens: json.usage?.completion_tokens };
+    this.addUsage(json.usage?.prompt_tokens, json.usage?.completion_tokens);
     return json.choices?.[0]?.message?.content || "";
   }
 
   async generateReceptionDecision(input: ReceptionInput): Promise<ReceptionDecision> {
+    this.lastUsage = undefined;
     const prompt = `${DECISION_CONTRACT}\n\nPatient context:\n${JSON.stringify(input.patient)}\nRecent messages:\n${JSON.stringify(input.recentMessages)}\nApproved clinic knowledge:\n${input.knowledge}\nLatest patient message:\n${input.message}`;
     const first = await this.generateText(prompt);
     const firstObject = extractJson(first);
@@ -82,11 +95,13 @@ export class RemoteProvider implements AIProvider {
   }
 
   async summarizePatient(input: SummaryInput) {
+    this.lastUsage = undefined;
     const text = await this.generateText(`Summarize this patient in at most 70 words using only supplied facts. Patient: ${JSON.stringify(input.patient)} Messages: ${JSON.stringify(input.messages)}`, "You create factual clinic reception summaries. Never diagnose or invent facts.");
     return z.string().min(1).max(800).parse(text.trim());
   }
 
   async healthCheck() {
+    this.lastUsage = undefined;
     const start = Date.now();
     await this.generateText("Return a JSON object with one field: ok=true", "Return JSON only.");
     return { connected: true, latency: Date.now() - start, model: this.model, message: "Connected" };

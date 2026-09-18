@@ -65,7 +65,7 @@ export function ReceptionTestPanel() {
   return <main className="simulator-page reception-test-page">
     <section className="simulator-tools">
       <Link className="test-back-link" href="/inbox"><ArrowLeft size={15}/>Back to dashboard</Link>
-      <div><span className="eyebrow">Temporary · Local testing only</span><h1>Test your AI receptionist</h1><p>Chat exactly like a patient. Replies come from the real Radiance conversation engine using DeepSeek with Gemini fallback.</p></div>
+      <div><span className="eyebrow">Temporary · Local testing only</span><h1>Test your AI receptionist</h1><p>Chat exactly like a patient. Replies use the real Radiance conversation engine with DeepSeek and two Gemini fallback tiers.</p></div>
       <div className="test-safety-note"><WifiOff size={18}/><div><strong>No WhatsApp messages are sent</strong><span>Everything stays inside this one local test conversation.</span></div></div>
       <div className="test-suggestions"><span>Try a message</span>{suggestions.map((item) => <button type="button" key={item} onClick={() => setMessage(item)} disabled={busy}>{item}</button>)}</div>
       <button className="secondary-button test-reset" type="button" onClick={reset} disabled={busy}><RotateCcw size={15}/>New test conversation</button>
@@ -89,7 +89,10 @@ export function ReceptionTestPanel() {
     <aside className="simulator-status test-state-card">
       <span className="eyebrow">Live conversation state</span>
       <div><Bot size={15}/><span>Language<br/><strong>{titleCase(String(state.preferredLanguage || "AUTO"))}</strong></span></div>
-      <div><Sparkles size={15}/><span>Active flow<br/><strong>{titleCase(String(state.activeFlow || "Greeting"))}</strong></span></div>
+      <div><Sparkles size={15}/><span>Conversation phase<br/><strong>{titleCase(String(state.conversationPhase || "DISCOVERY"))}</strong></span></div>
+      <div><span className="test-state-dot"/><span>Readiness<br/><strong>{String(state.readinessScore || 0)} / 100</strong></span></div>
+      <div><span className="test-state-dot"/><span>Main objection<br/><strong>{titleCase(String(state.primaryObjection || "None"))}</strong></span></div>
+      <div><span className="test-state-dot"/><span>Next best action<br/><strong>{titleCase(String(state.nextBestAction || "ANSWER"))}</strong></span></div>
       <div><ShieldCheck size={15}/><span>AI mode<br/><strong>{titleCase(String(state.aiMode || "AI"))}</strong></span></div>
       <div><span className="test-state-dot"/><span>Lead score<br/><strong>{context?.patient.leadScore ?? 10} · {context?.patient.leadTemperature || "COLD"}</strong></span></div>
       <div><span className="test-state-dot"/><span>Treatment<br/><strong>{titleCase(context?.patient.treatmentSlug)}</strong></span></div>

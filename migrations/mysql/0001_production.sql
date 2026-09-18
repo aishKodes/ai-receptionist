@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS conversation_state (
   conversation_id VARCHAR(64) PRIMARY KEY, preferred_language VARCHAR(16) NOT NULL DEFAULT 'AUTO', active_flow VARCHAR(80), pending_question TEXT, pending_action VARCHAR(120), last_assistant_question TEXT,
   requested_date VARCHAR(20), requested_time VARCHAR(20), requested_day_part VARCHAR(20), offered_slots_json LONGTEXT NOT NULL, selected_slot VARCHAR(20), appointment_id VARCHAR(64),
   current_concern TEXT, current_treatment VARCHAR(100), previous_treatment BOOLEAN NOT NULL DEFAULT FALSE, rolling_summary TEXT, sent_content_ids_json LONGTEXT NOT NULL,
-  last_content_sent_at VARCHAR(40), ai_mode VARCHAR(24) NOT NULL DEFAULT 'AI', human_lock_until VARCHAR(40), created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
+  last_content_sent_at VARCHAR(40), ai_mode VARCHAR(24) NOT NULL DEFAULT 'AI', human_lock_until VARCHAR(40),
+  conversation_phase VARCHAR(40) NOT NULL DEFAULT 'DISCOVERY', readiness_score INT NOT NULL DEFAULT 0, readiness_reason TEXT, primary_objection VARCHAR(40), next_best_action VARCHAR(40) NOT NULL DEFAULT 'ANSWER', next_action_reason TEXT, conversion_memory_json LONGTEXT,
+  created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL,
   CONSTRAINT fk_conversation_state_conversation FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -82,7 +84,10 @@ CREATE TABLE IF NOT EXISTS lead_score_events (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_logs (id VARCHAR(64) PRIMARY KEY, actor VARCHAR(32) NOT NULL, action VARCHAR(100) NOT NULL, entity_type VARCHAR(100) NOT NULL, entity_id VARCHAR(100), summary TEXT NOT NULL, metadata_json LONGTEXT NOT NULL, created_at VARCHAR(40) NOT NULL, INDEX idx_audit_entity_created (entity_type, entity_id, created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-CREATE TABLE IF NOT EXISTS provider_usage (id VARCHAR(64) PRIMARY KEY, patient_id VARCHAR(64), conversation_id VARCHAR(64), provider VARCHAR(40) NOT NULL, model VARCHAR(100) NOT NULL, operation VARCHAR(80) NOT NULL, status VARCHAR(32) NOT NULL, latency_ms INT NOT NULL DEFAULT 0, input_tokens INT, output_tokens INT, estimated_cost_usd VARCHAR(40), error_code VARCHAR(100), created_at VARCHAR(40) NOT NULL, INDEX idx_provider_usage_created (created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS provider_usage (id VARCHAR(64) PRIMARY KEY, patient_id VARCHAR(64), conversation_id VARCHAR(64), provider VARCHAR(40) NOT NULL, model VARCHAR(100) NOT NULL, operation VARCHAR(80) NOT NULL, status VARCHAR(32) NOT NULL, latency_ms INT NOT NULL DEFAULT 0, input_tokens INT, output_tokens INT, estimated_cost_usd VARCHAR(40), error_code VARCHAR(100), fallback_reason VARCHAR(120), created_at VARCHAR(40) NOT NULL, INDEX idx_provider_usage_created (created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS marketing_daily_quota (day VARCHAR(10) PRIMARY KEY, used INT NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS marketing_patient_cooldown (patient_id VARCHAR(64) PRIMARY KEY, reserved_until VARCHAR(40) NOT NULL, CONSTRAINT fk_marketing_cooldown_patient FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS lead_imports (id VARCHAR(64) PRIMARY KEY, file_name VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL, total_rows INT NOT NULL DEFAULT 0, imported_rows INT NOT NULL DEFAULT 0, skipped_rows INT NOT NULL DEFAULT 0, error_rows INT NOT NULL DEFAULT 0, errors_json LONGTEXT NOT NULL, created_at VARCHAR(40) NOT NULL, completed_at VARCHAR(40)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS message_templates (

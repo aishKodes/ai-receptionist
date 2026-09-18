@@ -44,6 +44,7 @@ describe("complete production reception workflow", () => {
     const csv = "name,phone,concern,opt in,source\nReturning Lead,9876543288,Previous hair enquiry,yes,old_crm\nUnknown Consent,9876543287,Skin enquiry,,old_crm";
     expect(importCsvLeads("old-leads.csv", csv).imported).toBe(2);
     const returning = getSqlite().prepare("SELECT id FROM patients WHERE phone='+919876543288'").get() as { id: string };
+    getSqlite().prepare("UPDATE message_templates SET status='APPROVED',meta_template_name='general_reengagement_v1' WHERE id='tpl_general_reengagement'").run();
     const campaignId = createCampaign({ name: "Old lead re-engagement", templateId: "tpl_general_reengagement" });
     expect(startCampaign(campaignId).queued).toBeGreaterThanOrEqual(1);
     expect((await processOutboundOnce()).sent).toBeGreaterThanOrEqual(1);
