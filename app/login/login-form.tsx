@@ -17,8 +17,8 @@ export function LoginForm() {
   return <form className="login-card" onSubmit={submit}>
     <div className="login-mark"><LockKeyhole size={23}/></div>
     <div><span className="eyebrow">Radiance Clinics · Bhubaneswar</span><h1>Radiance AI Reception</h1></div>
-    <label><span>Enter PIN</span><input autoFocus autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" aria-label="Enter PIN"/></label>
+    <label><span>Enter PIN</span><input autoFocus autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{8}" maxLength={8} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="••••••••" aria-label="Enter PIN"/></label>
     {error && <p className="login-error" role="alert">{error}</p>}
-    <button className="primary-button full" disabled={busy || pin.length !== 6}>{busy ? <LoaderCircle className="spin"/> : <LockKeyhole size={17}/>}Unlock</button>
+    <button className="primary-button full" disabled={busy || pin.length !== 8}>{busy ? <LoaderCircle className="spin"/> : <LockKeyhole size={17}/>}Unlock</button>
   </form>;
 }
