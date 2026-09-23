@@ -29,6 +29,11 @@
     "predeploy": "tsx scripts/predeploy.ts"
   },
   "dependencies": {
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "bcryptjs": "^3.0.3",
     "date-fns": "^4.4.0",
     "dotenv": "^17.4.2",
@@ -40,6 +45,8 @@
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
@@ -47,20 +54,13 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.0",
-    "@tailwindcss/postcss": "4.2.1",
-    "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "22.19.19",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "react-server-dom-webpack": "^19.2.8",
-    "tailwindcss": "4.2.1",
     "tsx": "^4.23.12",
-    "typescript": "5.9.3",
     "vinext": "0.0.50",
     "vite": "^8.2.2",
     "vitest": "^4.1.10",
