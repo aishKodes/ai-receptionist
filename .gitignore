@@ -28,12 +28,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Environment and private credentials
+.env
+.env.*
 !.env.example
+*.key
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/*.sqlite
+data/*.sqlite3
+*.sqlite
+*.sqlite3
 
 # vercel
 .vercel
