@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.3",
     "date-fns": "^4.4.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "0.45.2",
@@ -42,6 +41,9 @@
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",
     "zod": "^4.4.3"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^13.0.3"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.0",
