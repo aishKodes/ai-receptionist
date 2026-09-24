@@ -5,7 +5,7 @@ import { clearLoginFailures, loginAddress, loginAllowed, recordLoginFailure } fr
 import { createSessionToken, SESSION_COOKIE, SESSION_TTL_SECONDS, sessionConfigurationReady } from "@/lib/auth/session";
 import { enforceSameOrigin } from "@/lib/security/http";
 
-const Schema = z.object({ pin: z.string().regex(/^\d{8}$/) });
+const Schema = z.object({ pin: z.string().regex(/^\d{6,8}$/) });
 const genericError = "The PIN could not be accepted. Please wait and try again.";
 
 export async function POST(request: NextRequest) {
