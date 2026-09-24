@@ -39,6 +39,7 @@ export function getDb() {
 }
 
 function usesMysql() {
+  if (process.env.DATABASE_PROVIDER === "sqlite") return false;
   return process.env.DATABASE_PROVIDER === "mysql" || process.env.RADIANCE_BUILD_DATABASE_PROVIDER === "mysql";
 }
 

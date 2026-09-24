@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 
-const usesMysql = process.env.DATABASE_PROVIDER === "mysql";
+// Hostinger's manually uploaded apps do not reliably surface custom variables
+// while compiling. This deployment targets MySQL by default; local SQLite work
+// remains available when it is explicitly requested.
+const usesMysql = process.env.DATABASE_PROVIDER !== "sqlite";
 
 const nextConfig: NextConfig = {
   agentRules: false,
