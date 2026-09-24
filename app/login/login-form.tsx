@@ -19,6 +19,6 @@ export function LoginForm() {
     <div><span className="eyebrow">Radiance Clinics · Bhubaneswar</span><h1>Radiance AI Reception</h1></div>
     <label><span>Enter PIN</span><input autoFocus autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6,8}" minLength={6} maxLength={8} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 8))} placeholder="••••••" aria-label="Enter PIN"/></label>
     {error && <p className="login-error" role="alert">{error}</p>}
-    <button className="primary-button full" disabled={busy || pin.length !== 8}>{busy ? <LoaderCircle className="spin"/> : <LockKeyhole size={17}/>}Unlock</button>
+    <button className="primary-button full" disabled={busy || pin.length < 6 || pin.length > 8}>{busy ? <LoaderCircle className="spin"/> : <LockKeyhole size={17}/>}Unlock</button>
   </form>;
 }
