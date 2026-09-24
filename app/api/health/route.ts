@@ -10,7 +10,11 @@ export function GET() {
       status: "ok",
       database: "ok",
     }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+  } catch (error) {
+    // Keep the public response intentionally non-specific, but make a
+    // managed-host runtime failure diagnosable in the private server log.
+    const details = error instanceof Error ? { message: error.message, code: (error as Error & { code?: string }).code } : { message: "Unknown database error" };
+    console.error("[Radiance health] database unavailable", details);
     return NextResponse.json({ status: "degraded", database: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }
