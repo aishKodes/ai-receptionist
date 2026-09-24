@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { Worker } from "node:worker_threads";
 
 type QueryOperation = "get" | "all" | "run" | "exec" | "begin" | "commit" | "rollback";
@@ -42,7 +43,14 @@ export class MysqlSyncDatabase implements OperationalDatabase {
 
   constructor() {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required when DATABASE_PROVIDER=mysql.");
-    this.worker = new Worker(path.join(process.cwd(), "db/mysql-worker.mjs"));
+    const roots = [process.cwd(), path.resolve(process.cwd(), "..")];
+    const candidates = roots.flatMap((root) => [
+      path.join(root, "db/mysql-worker.mjs"),
+      path.join(root, ".next/db/mysql-worker.mjs"),
+    ]);
+    const workerPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!workerPath) throw new Error("MySQL worker is unavailable in this deployment. Rebuild the application before enabling MySQL.");
+    this.worker = new Worker(workerPath);
     this.worker.unref();
   }
 
