@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
+import { createRequire } from "node:module";
+import type Database from "better-sqlite3";
 import * as schema from "./schema";
 import { MysqlSyncDatabase, type OperationalDatabase } from "./mysql-sync";
 
@@ -10,11 +11,22 @@ export const databasePath = process.env.RADIANCE_DB_PATH || path.join(dataDir, "
 
 type GlobalWithDb = typeof globalThis & { __radianceSqlite?: Database.Database; __radianceMysql?: MysqlSyncDatabase };
 
+let sqliteConstructor: typeof Database | undefined;
+function sqliteDriver() {
+  if (!sqliteConstructor) {
+    // Do not use a static require here: managed MySQL deployments omit this
+    // native dependency entirely and must never try to load it at startup.
+    const moduleName = ["better", "sqlite3"].join("-");
+    sqliteConstructor = createRequire(path.join(process.cwd(), "radiance-runtime.cjs"))(moduleName) as typeof Database;
+  }
+  return sqliteConstructor;
+}
+
 export function getSqlite() {
   const root = globalThis as GlobalWithDb;
   if (!root.__radianceSqlite) {
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
-    root.__radianceSqlite = new Database(databasePath);
+    root.__radianceSqlite = new (sqliteDriver())(databasePath);
     root.__radianceSqlite.pragma("journal_mode = WAL");
     root.__radianceSqlite.pragma("foreign_keys = ON");
     root.__radianceSqlite.pragma("busy_timeout = 5000");

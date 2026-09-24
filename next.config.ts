@@ -5,7 +5,10 @@ const usesMysql = process.env.DATABASE_PROVIDER === "mysql";
 
 const nextConfig: NextConfig = {
   agentRules: false,
-  serverExternalPackages: ["better-sqlite3"],
+  // MySQL production builds deliberately omit the native SQLite package.
+  // Keeping it external in that mode makes the server require it before the
+  // MySQL adapter can be selected.
+  serverExternalPackages: usesMysql ? [] : ["better-sqlite3"],
   turbopack: { root: process.cwd() },
   webpack: (config, { isServer }) => {
     // Hostinger installs production dependencies only, which means Next cannot
