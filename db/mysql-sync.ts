@@ -18,13 +18,20 @@ const { workerData } = require("node:worker_threads");
 
 if (!parentPort) throw new Error("MySQL worker requires a parent port.");
 
-let connectionPromise;
+let pool;
+let transactionConnection;
 let startupFailure;
 try {
   const mysql = require(workerData.mysqlModulePath);
-  connectionPromise = mysql.createConnection({
+  // The hosting provider closes idle MySQL connections. A pool discards
+  // closed connections and opens a fresh one for the next request.
+  pool = mysql.createPool({
     uri: process.env.DATABASE_URL,
     connectTimeout: 7000,
+    waitForConnections: true,
+    connectionLimit: 2,
+    maxIdle: 1,
+    idleTimeout: 30000,
     multipleStatements: true,
     supportBigNumbers: true,
     bigNumberStrings: false,
@@ -57,12 +64,29 @@ function finish(buffer, ok, payload) {
 parentPort.on("message", async ({ buffer, operation, sql, params }) => {
   try {
     if (startupFailure) throw Object.assign(new Error(startupFailure.message), { code: startupFailure.code });
-    const connection = await connectionPromise;
-    if (operation === "begin") await connection.beginTransaction();
-    else if (operation === "commit") await connection.commit();
-    else if (operation === "rollback") await connection.rollback();
+    if (operation === "begin") {
+      if (transactionConnection) throw new Error("A MySQL transaction is already active.");
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        transactionConnection = connection;
+      } catch (error) {
+        connection.release();
+        throw error;
+      }
+    } else if (operation === "commit" || operation === "rollback") {
+      if (!transactionConnection) throw new Error("No MySQL transaction is active.");
+      const connection = transactionConnection;
+      transactionConnection = undefined;
+      try {
+        if (operation === "commit") await connection.commit();
+        else await connection.rollback();
+      } finally {
+        connection.release();
+      }
+    }
     else {
-      const [result] = await connection.query(sql, params || []);
+      const [result] = await (transactionConnection || pool).query(sql, params || []);
       if (operation === "get") finish(buffer, true, Array.isArray(result) ? result[0] ?? null : null);
       else if (operation === "all") finish(buffer, true, Array.isArray(result) ? result : []);
       else if (operation === "run") finish(buffer, true, { changes: Number(result.affectedRows || 0), lastInsertRowid: Number(result.insertId || 0) });
