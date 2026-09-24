@@ -22,7 +22,7 @@
     "test:conversation-quality": "vitest run tests/conversation-quality.test.ts",
     "eval:models": "tsx scripts/eval-models.ts",
     "smoke:conversations": "tsx scripts/smoke-conversations.ts",
-    "build": "next build --webpack && node scripts/copy-mysql-worker.mjs",
+    "build": "next build --webpack",
     "start": "next start",
     "auth:hash-pin": "tsx scripts/hash-pin.ts",
     "production:clean": "tsx scripts/production-cleanup.ts --apply",
