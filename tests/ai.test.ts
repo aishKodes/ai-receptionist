@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import { MockProvider } from "@/lib/ai/providers/mock";
+import type { AIProvider } from "@/lib/ai/providers/provider";
+import { routeReceptionDecision } from "@/lib/ai/router";
 import { checkSafety } from "@/lib/ai/safety";
 import { calculateLeadScore, temperatureFor } from "@/lib/crm/scoring";
 import { databasePath, getSqlite } from "@/db";
@@ -18,6 +20,29 @@ afterAll(() => {
 });
 
 describe("Radiance reception intelligence", () => {
+  it("keeps a valid fallback reply when the advanced model is unavailable", async () => {
+    const input = { message: "I need help understanding hair loss options", patient: { preferredLanguage: "ENGLISH" }, recentMessages: [], knowledge: "" };
+    const baseline = await new MockProvider().generateReceptionDecision(input);
+    const provider = (name: "deepseek" | "gemini", model: string, confidence: number): AIProvider => ({
+      name, model,
+      generateReceptionDecision: async () => ({ ...baseline, intentConfidence: confidence }),
+      summarizePatient: async () => "Summary",
+      healthCheck: async () => ({ connected: true, latency: 0, model, message: "Connected" }),
+    });
+    const complex: AIProvider = {
+      ...provider("gemini", "advanced", 0.9),
+      generateReceptionDecision: async () => { throw new Error("Provider unavailable"); },
+    };
+    const result = await routeReceptionDecision(input, { complex: true }, {
+      primary: provider("deepseek", "primary", 0.2),
+      fallback: provider("gemini", "verified-fallback", 0.4),
+      complex,
+    });
+    expect(result.provider.model).toBe("verified-fallback");
+    expect(result.decision.reply).toBe(baseline.reply);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
   it("classifies treatment and extracts reliable entities", async () => {
     const decision = await new MockProvider().generateReceptionDecision({
       message: "Hi, I'm 29 and my hair has become very thin from the front for almost 3 years. I am thinking about hair transplant.",

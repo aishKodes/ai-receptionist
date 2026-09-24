@@ -36,6 +36,7 @@ export async function routeReceptionDecision(input: ReceptionInput, meta: RouteM
   const safeMock = options.safeMock ?? new MockProvider();
   const languageSensitive = input.patient.preferredLanguage === "ODIA" || /\p{Script=Oriya}/u.test(input.message);
   let reason: string | null = null;
+  let usableFallback: ReceptionDecision | null = null;
   if (!languageSensitive) {
     try {
       const decision = await attempt(primary, input, meta);
@@ -47,6 +48,7 @@ export async function routeReceptionDecision(input: ReceptionInput, meta: RouteM
     try {
       const decision = await attempt(fallback, input, meta, "FALLBACK", reason);
       const languageFailed = languageMismatch(decision.reply, input.patient.preferredLanguage);
+      if (!languageFailed) usableFallback = decision;
       if ((!shouldUseFallback(decision, input.message) && !languageFailed) || (!meta.complex && !languageFailed) || !complex || (complex.name === fallback.name && complex.model === fallback.model)) return { decision, provider: fallback, fallbackUsed: true, fallbackReason: reason };
       reason = languageFailed ? "LANGUAGE_FALLBACK_MISMATCH" : "COMPLEX_LOW_CONFIDENCE";
     } catch { reason = "LANGUAGE_FALLBACK_ERROR_OR_INVALID_OUTPUT"; }
@@ -54,6 +56,7 @@ export async function routeReceptionDecision(input: ReceptionInput, meta: RouteM
   if (complex && (meta.complex || reason === "LANGUAGE_FALLBACK_MISMATCH" || (languageSensitive && reason === "LANGUAGE_FALLBACK_ERROR_OR_INVALID_OUTPUT")) && !(complex.name === fallback?.name && complex.model === fallback.model)) {
     try { return { decision: await attempt(complex, input, meta, "FALLBACK", reason || "COMPLEX_CASE"), provider: complex, fallbackUsed: true, fallbackReason: reason || "COMPLEX_CASE" }; } catch { /* safe continuity below */ }
   }
+  if (usableFallback && fallback) return { decision: usableFallback, provider: fallback, fallbackUsed: true, fallbackReason: "COMPLEX_PROVIDER_UNAVAILABLE" };
   if (process.env.AI_FALLBACK_TO_MOCK === "false") throw new Error("Reception AI is temporarily unavailable.");
   return { decision: await attempt(safeMock, input, meta, "SAFE_MOCK", reason || "PROVIDER_UNAVAILABLE"), provider: safeMock, fallbackUsed: primary.name !== "mock", fallbackReason: reason || "PROVIDER_UNAVAILABLE" };
 }
