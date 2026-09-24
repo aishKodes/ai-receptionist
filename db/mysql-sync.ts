@@ -10,19 +10,29 @@ type QueryParameters = unknown[] | Record<string, unknown>;
 // Node inside the worker at runtime.
 const MYSQL_WORKER_SOURCE = String.raw`
 const { parentPort } = require("node:worker_threads");
-const mysql = require("mysql2/promise");
 
 if (!parentPort) throw new Error("MySQL worker requires a parent port.");
 
-const connectionPromise = mysql.createConnection({
-  uri: process.env.DATABASE_URL,
-  multipleStatements: true,
-  supportBigNumbers: true,
-  bigNumberStrings: false,
-  ssl: process.env.DATABASE_SSL === "false"
-    ? undefined
-    : { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" },
-});
+let connectionPromise;
+let startupFailure;
+try {
+  const mysql = require("mysql2/promise");
+  connectionPromise = mysql.createConnection({
+    uri: process.env.DATABASE_URL,
+    connectTimeout: 7000,
+    multipleStatements: true,
+    supportBigNumbers: true,
+    bigNumberStrings: false,
+    ssl: process.env.DATABASE_SSL === "false"
+      ? undefined
+      : { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" },
+  });
+} catch (error) {
+  startupFailure = {
+    message: typeof error === "object" && error && "message" in error ? String(error.message) : "MySQL worker could not start.",
+    code: typeof error === "object" && error && "code" in error ? String(error.code) : "MYSQL_WORKER_STARTUP_ERROR",
+  };
+}
 
 function finish(buffer, ok, payload) {
   const control = new Int32Array(buffer, 0, 4);
@@ -41,6 +51,7 @@ function finish(buffer, ok, payload) {
 
 parentPort.on("message", async ({ buffer, operation, sql, params }) => {
   try {
+    if (startupFailure) throw Object.assign(new Error(startupFailure.message), { code: startupFailure.code });
     const connection = await connectionPromise;
     if (operation === "begin") await connection.beginTransaction();
     else if (operation === "commit") await connection.commit();
