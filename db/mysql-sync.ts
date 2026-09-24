@@ -1,4 +1,8 @@
 import { Worker } from "node:worker_threads";
+// Keep the driver in the server dependency trace.  The worker is evaluated by
+// Node rather than webpack, so it must be given the absolute module entry that
+// was resolved by the parent server module.
+import mysqlDriver from "mysql2/promise";
 
 type QueryOperation = "get" | "all" | "run" | "exec" | "begin" | "commit" | "rollback";
 type QueryParameters = unknown[] | Record<string, unknown>;
@@ -10,13 +14,14 @@ type QueryParameters = unknown[] | Record<string, unknown>;
 // Node inside the worker at runtime.
 const MYSQL_WORKER_SOURCE = String.raw`
 const { parentPort } = require("node:worker_threads");
+const { workerData } = require("node:worker_threads");
 
 if (!parentPort) throw new Error("MySQL worker requires a parent port.");
 
 let connectionPromise;
 let startupFailure;
 try {
-  const mysql = require("mysql2/promise");
+  const mysql = require(workerData.mysqlModulePath);
   connectionPromise = mysql.createConnection({
     uri: process.env.DATABASE_URL,
     connectTimeout: 7000,
@@ -114,7 +119,12 @@ export class MysqlSyncDatabase implements OperationalDatabase {
 
   constructor() {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required when DATABASE_PROVIDER=mysql.");
-    this.worker = new Worker(MYSQL_WORKER_SOURCE, { eval: true });
+    // The void expression keeps the statically imported production dependency
+    // in Next's server trace; the evaluated worker uses the resolved absolute
+    // path because its own module-resolution base is Hostinger's worker shim.
+    void mysqlDriver;
+    const mysqlModulePath = require.resolve("mysql2/promise");
+    this.worker = new Worker(MYSQL_WORKER_SOURCE, { eval: true, workerData: { mysqlModulePath } });
     this.worker.unref();
   }
 

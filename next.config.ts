@@ -18,7 +18,10 @@ const nextConfig: NextConfig = {
   // MySQL production builds deliberately omit the native SQLite package.
   // Keeping it external in that mode makes the server require it before the
   // MySQL adapter can be selected.
-  serverExternalPackages: usesMysql ? [] : ["better-sqlite3"],
+  // mysql2 is loaded inside a Node worker. Mark it external so Next retains
+  // the real module in the server dependency trace instead of only bundling
+  // its parent route code.
+  serverExternalPackages: usesMysql ? ["mysql2"] : ["better-sqlite3"],
   turbopack: { root: process.cwd() },
   webpack: (config, { isServer }) => {
     // Hostinger installs production dependencies only, which means Next cannot
