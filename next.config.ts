@@ -5,6 +5,13 @@ const usesMysql = process.env.DATABASE_PROVIDER === "mysql";
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  // Hostinger makes build-time variables available to Next's compiler, but a
+  // manual deployment can omit a non-secret selector from the runtime process.
+  // Preserve only the selected provider so the server chooses the same adapter
+  // that the build was prepared for; credentials remain runtime-only.
+  env: {
+    RADIANCE_BUILD_DATABASE_PROVIDER: usesMysql ? "mysql" : "sqlite",
+  },
   // MySQL production builds deliberately omit the native SQLite package.
   // Keeping it external in that mode makes the server require it before the
   // MySQL adapter can be selected.

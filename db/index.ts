@@ -38,8 +38,12 @@ export function getDb() {
   return drizzle(getSqlite(), { schema });
 }
 
+function usesMysql() {
+  return process.env.DATABASE_PROVIDER === "mysql" || process.env.RADIANCE_BUILD_DATABASE_PROVIDER === "mysql";
+}
+
 export function getDatabase(): OperationalDatabase {
-  if (process.env.DATABASE_PROVIDER !== "mysql") return getSqlite() as unknown as OperationalDatabase;
+  if (!usesMysql()) return getSqlite() as unknown as OperationalDatabase;
   const root = globalThis as GlobalWithDb;
   if (!root.__radianceMysql) root.__radianceMysql = new MysqlSyncDatabase();
   return root.__radianceMysql;
