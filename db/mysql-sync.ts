@@ -123,7 +123,11 @@ export class MysqlSyncDatabase implements OperationalDatabase {
     // in Next's server trace; the evaluated worker uses the resolved absolute
     // path because its own module-resolution base is Hostinger's worker shim.
     void mysqlDriver;
-    const mysqlModulePath = require.resolve("mysql2/promise");
+    // Webpack rewrites `require.resolve()` (and createRequire().resolve()) to
+    // its numeric module id. Resolve through Node's runtime require so the
+    // evaluated worker receives an absolute filename instead.
+    const nodeRequire = eval("require") as { resolve(moduleName: string): string };
+    const mysqlModulePath = nodeRequire.resolve("mysql2/promise");
     this.worker = new Worker(MYSQL_WORKER_SOURCE, { eval: true, workerData: { mysqlModulePath } });
     this.worker.unref();
   }
