@@ -14,5 +14,16 @@ export function enforceRateLimit(request: NextRequest, scope: string, limit = 60
 
 export function enforceSameOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== request.nextUrl.origin) throw new Error("Request origin was not accepted.");
+  if (!origin) return;
+
+  // Managed hosts commonly terminate TLS before forwarding to Next.js. In
+  // that setup request.nextUrl.origin can be the internal HTTP origin even
+  // though a legitimate browser request originated from the public HTTPS
+  // application URL. APP_URL is the explicit, deployment-controlled public
+  // origin, so accept it alongside Next's observed origin.
+  const allowedOrigins = new Set([request.nextUrl.origin]);
+  if (process.env.APP_URL) {
+    try { allowedOrigins.add(new URL(process.env.APP_URL).origin); } catch { /* ignore malformed optional configuration */ }
+  }
+  if (!allowedOrigins.has(origin)) throw new Error("Request origin was not accepted.");
 }
