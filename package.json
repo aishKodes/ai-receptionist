@@ -27,6 +27,7 @@
     "eval:models": "tsx scripts/eval-models.ts",
     "smoke:conversations": "tsx scripts/smoke-conversations.ts",
     "build": "next build --webpack",
+    "prestart": "tsx scripts/startup-migrate.ts",
     "start": "next start",
     "auth:hash-pin": "tsx scripts/hash-pin.ts",
     "production:clean": "tsx scripts/production-cleanup.ts --apply",

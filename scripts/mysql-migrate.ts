@@ -236,6 +236,46 @@ try {
       [key, value, now],
     );
   }
+  const [futureSlotRows] = await connection.execute(
+    "SELECT COUNT(*) AS total FROM available_slots WHERE `date`>=DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+05:30'),'%Y-%m-%d')",
+  );
+  if (
+    Number((futureSlotRows as Array<{ total: number }>)[0]?.total || 0) === 0
+  ) {
+    const slotTimes = [
+      "10:00",
+      "10:30",
+      "11:00",
+      "11:30",
+      "12:00",
+      "12:30",
+      "13:00",
+      "15:30",
+      "16:00",
+      "16:30",
+      "17:00",
+      "17:30",
+      "18:00",
+      "18:30",
+      "19:00",
+    ];
+    const istDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    for (let offset = 0; offset <= 30; offset += 1) {
+      const date = istDate.format(new Date(Date.now() + offset * 86400000));
+      if (new Date(`${date}T12:00:00+05:30`).getUTCDay() === 6) continue;
+      for (const time of slotTimes) {
+        await connection.execute(
+          "INSERT IGNORE INTO available_slots (id,`date`,`time`,active) VALUES (?,?,?,1)",
+          [`slot_${date}_${time.replace(":", "")}`, date, time],
+        );
+      }
+    }
+  }
   const content = [
     [
       "content_radiance_youtube_channel",
