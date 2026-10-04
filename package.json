@@ -26,6 +26,7 @@
     "test:pricing": "vitest run tests/pricing.test.ts",
     "eval:models": "tsx scripts/eval-models.ts",
     "smoke:conversations": "tsx scripts/smoke-conversations.ts",
+    "prebuild": "tsx scripts/startup-migrate.ts",
     "build": "next build --webpack",
     "prestart": "tsx scripts/startup-migrate.ts",
     "start": "next start",
