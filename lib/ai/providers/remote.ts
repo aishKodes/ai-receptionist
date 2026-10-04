@@ -20,8 +20,8 @@ const DECISION_CONTRACT = `Return exactly one JSON object with these fields and 
   "internalSummary": "short factual summary"
 }
 
-The intent value MUST be exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, general_skin, general_hair, appointment, reschedule, cancellation, pricing, human_request, complaint, post_procedure_concern, unknown.
-The treatmentSlug value MUST be null or exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, general_skin, general_hair.
+The intent value MUST be exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, smp, dull_skin, skin_glow, botox, fillers, laser_hair_removal_full_body, laser_hair_removal_full_face, tattoo_removal, microblading, lip_blushing, general_skin, general_hair, appointment, reschedule, cancellation, pricing, human_request, complaint, post_procedure_concern, unknown.
+The treatmentSlug value MUST be null or exactly one of: hair_loss, hair_transplant, prp, gfc, beard_transplant, acne, acne_scars, pigmentation, melasma, laser, anti_ageing, smp, dull_skin, skin_glow, botox, fillers, laser_hair_removal_full_body, laser_hair_removal_full_face, tattoo_removal, microblading, lip_blushing, general_skin, general_hair.
 Use null for facts not reliably present in the latest message. If present, desiredDate must be YYYY-MM-DD and desiredTime must be HH:mm in 24-hour time. Never invent alternate labels or synonyms for enum values.`;
 
 function extractJson(text: string) {

@@ -3,17 +3,28 @@ import type { AIProvider } from "./provider";
 import { TreatmentSlugSchema, type ReceptionDecision, type ReceptionInput, type SummaryInput } from "@/lib/ai/schemas";
 
 const treatmentRules: Array<[NonNullable<ReceptionDecision["treatmentSlug"]>, RegExp]> = [
+  ["laser_hair_removal_full_body", /full[ -]?body.*(?:laser|hair removal)|(?:laser|hair removal).*full[ -]?body/i],
+  ["laser_hair_removal_full_face", /full[ -]?face.*(?:laser|hair removal)|(?:laser|hair removal).*full[ -]?face/i],
   ["beard_transplant", /beard\s*(transplant|patch|density)/i],
   ["hair_transplant", /hair\s*transplant|front\s*hairline|baldness|bald\s*(patch|spot)/i],
   ["gfc", /\bgfc\b|growth factor concentrate/i],
+  ["smp", /\bsmp\b|scalp micropigmentation|scalp visibility/i],
   ["prp", /\bprp\b|platelet.rich plasma/i],
   ["acne_scars", /acne\s*scar|pimple\s*scar|skin texture/i],
   ["acne", /\bacne\b|\bpimples?\b|breakout/i],
   ["melasma", /\bmelasma\b|brown patches/i],
   ["pigmentation", /pigment|dark spots?|uneven tone/i],
+  ["dull_skin", /dull\s*skin/i],
+  ["skin_glow", /skin\s*glow|brightening/i],
+  ["botox", /\bbotox\b/i],
+  ["fillers", /fillers?|facial volume|lip filler/i],
+  ["tattoo_removal", /tattoo\s*removal/i],
+  ["microblading", /microblading|ombre powder brows?|eyebrows?/i],
+  ["lip_blushing", /lip\s*blushing/i],
   ["laser", /\blaser\b/i],
   ["anti_ageing", /anti.?age|fine lines?|wrinkles?/i],
   ["hair_loss", /hair\s*(fall|falling|loss|thin|thinning)|\bcrown\b/i],
+  ["hair_loss", /(?:mere|mera|meri)?\s*front\s*(?:ke)?\s*baal.*(?:kam|thin)|baal.*(?:kam|jhad|gir)/i],
   ["general_skin", /\bskin\b/i],
 ];
 

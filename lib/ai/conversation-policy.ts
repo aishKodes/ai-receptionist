@@ -1,8 +1,8 @@
 import type { ReceptionDecision } from "./schemas";
 
-export const phases = ["DISCOVERY", "UNDERSTANDING", "EDUCATION", "TRUST_BUILDING", "OBJECTION_HANDLING", "CONSIDERATION", "SOFT_CONVERSION", "BOOKING", "POST_BOOKING", "HUMAN_HANDOFF"] as const;
+export const phases = ["DISCOVERY", "UNDERSTANDING", "ANSWERING", "EDUCATION", "TRUST_BUILDING", "OBJECTION_HANDLING", "CONSIDERATION", "SOFT_CONVERSION", "BOOKING", "POST_BOOKING", "FOLLOW_UP", "HUMAN_HANDOFF"] as const;
 export type ConversationPhase = typeof phases[number];
-export const nextActions = ["ANSWER", "ASK_ONE_QUESTION", "EDUCATE", "SHARE_CONTENT", "BUILD_TRUST", "HANDLE_OBJECTION", "SOFT_BOOKING_OFFER", "OFFER_BOOKING", "WAIT", "CALL_RECOMMENDED", "HUMAN_CHAT", "DOCTOR_REVIEW"] as const;
+export const nextActions = ["ANSWER", "ASK_ONE_QUESTION", "SHOW_OPTIONS", "EDUCATE", "SHARE_CONTENT", "BUILD_TRUST", "HANDLE_OBJECTION", "SOFT_BOOKING_OFFER", "OFFER_BOOKING", "CHECK_SLOTS", "BOOK", "CALL", "MANUAL_FOLLOWUP", "WAIT", "CALL_RECOMMENDED", "HUMAN_CHAT", "DOCTOR_REVIEW", "CLOSE_NOT_INTERESTED"] as const;
 export type NextBestAction = typeof nextActions[number];
 export const objections = ["PRICE", "FEAR", "PAIN", "TRUST", "RESULTS", "TIME", "TRAVEL", "FAMILY_DECISION", "COMPARING_CLINICS", "NOT_READY", "NEEDS_DOCTOR", "UNKNOWN"] as const;
 export type Objection = typeof objections[number];

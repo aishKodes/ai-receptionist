@@ -26,8 +26,8 @@ describe("complete production reception workflow", () => {
 
     await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "How much does it cost?" });
     rahul = getPatientContext("pat_rahul")!;
-    expect(String(rahul.messages.at(-1)?.content)).toContain("final cost depends");
-    expect(String(rahul.messages.at(-1)?.content)).not.toMatch(/₹|Rs\.?\s*\d/);
+    expect(String(rahul.messages.at(-1)?.content)).toMatch(/₹45 per graft/i);
+    expect(String(rahul.messages.at(-1)?.content)).toMatch(/final cost depends/i);
 
     await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "Can I come tomorrow evening?" });
     await processIncomingMessage({ channel: "local", patientId: "pat_rahul", messageType: "text", text: "5:30 works." });
@@ -44,6 +44,7 @@ describe("complete production reception workflow", () => {
     const csv = "name,phone,concern,opt in,source\nReturning Lead,9876543288,Previous hair enquiry,yes,old_crm\nUnknown Consent,9876543287,Skin enquiry,,old_crm";
     expect(importCsvLeads("old-leads.csv", csv).imported).toBe(2);
     const returning = getSqlite().prepare("SELECT id FROM patients WHERE phone='+919876543288'").get() as { id: string };
+    getSqlite().prepare("UPDATE patients SET lead_score=80,lead_temperature='HOT',treatment_slug='hair_transplant',last_contact_at=? WHERE id=?").run(new Date(Date.now() - 30 * 86400000).toISOString(), returning.id);
     getSqlite().prepare("UPDATE message_templates SET status='APPROVED',meta_template_name='general_reengagement_v1' WHERE id='tpl_general_reengagement'").run();
     const campaignId = createCampaign({ name: "Old lead re-engagement", templateId: "tpl_general_reengagement" });
     expect(startCampaign(campaignId).queued).toBeGreaterThanOrEqual(1);

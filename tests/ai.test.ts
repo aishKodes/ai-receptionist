@@ -86,8 +86,8 @@ describe("primary end-to-end production pipeline", () => {
     await processPatientMessage("pat_rahul", "How much does it cost?");
     context = getPatientContext("pat_rahul")!;
     const priceReply = String(context.messages.at(-1)?.content);
-    expect(priceReply).toContain("final cost depends");
-    expect(priceReply).not.toMatch(/₹|Rs\.?\s*\d|\d+,\d{3}/);
+    expect(priceReply).toMatch(/₹45 per graft/i);
+    expect(priceReply).toMatch(/final cost depends/i);
 
     await processPatientMessage("pat_rahul", "Can I come tomorrow evening?");
     context = getPatientContext("pat_rahul")!;

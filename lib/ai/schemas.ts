@@ -3,12 +3,14 @@ import { z } from "zod";
 export const IntentSchema = z.enum([
   "hair_loss", "hair_transplant", "prp", "gfc", "beard_transplant",
   "acne", "acne_scars", "pigmentation", "melasma", "laser", "anti_ageing",
+  "smp", "dull_skin", "skin_glow", "botox", "fillers", "laser_hair_removal_full_body", "laser_hair_removal_full_face", "tattoo_removal", "microblading", "lip_blushing",
   "general_skin", "general_hair", "appointment", "reschedule", "cancellation", "pricing", "human_request", "complaint", "post_procedure_concern", "unknown"
 ]);
 
 export const TreatmentSlugSchema = z.enum([
   "hair_loss", "hair_transplant", "prp", "gfc", "beard_transplant",
   "acne", "acne_scars", "pigmentation", "melasma", "laser", "anti_ageing",
+  "smp", "dull_skin", "skin_glow", "botox", "fillers", "laser_hair_removal_full_body", "laser_hair_removal_full_face", "tattoo_removal", "microblading", "lip_blushing",
   "general_skin", "general_hair"
 ]);
 

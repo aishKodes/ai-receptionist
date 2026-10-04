@@ -97,7 +97,7 @@ describe("outreach, appointments, and human mode", () => {
     expect(outreachEligibility({ phone: "+919876543210", whatsappOptInStatus: "UNKNOWN" }).reason).toBe("CONSENT_UNKNOWN");
     expect(outreachEligibility({ phone: "+919876543210", whatsappOptInStatus: "REVOKED", doNotContact: 1 }).reason).toBe("OPTED_OUT");
     const db = getSqlite();
-    db.prepare("UPDATE patients SET whatsapp_opt_in_status='CONFIRMED',do_not_contact=0,invalid_phone=0 WHERE id='pat_rahul'").run();
+    db.prepare("UPDATE patients SET whatsapp_opt_in_status='CONFIRMED',do_not_contact=0,invalid_phone=0,lead_score=80,lead_temperature='HOT',treatment_slug='hair_transplant',last_contact_at=? WHERE id='pat_rahul'").run(new Date(Date.now() - 30 * 86400000).toISOString());
     db.prepare("UPDATE message_templates SET status='APPROVED',meta_template_name='general_reengagement_v1' WHERE id='tpl_general_reengagement'").run();
     const campaignId = createCampaign({ name: "Phase 2 test", templateId: "tpl_general_reengagement" });
     const started = startCampaign(campaignId);

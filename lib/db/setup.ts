@@ -4,6 +4,11 @@ import { addDays, format, subMinutes } from "date-fns";
 import { getSqlite, makeId, nowIso } from "@/db";
 import knowledge from "@/data/radiance-knowledge.json";
 import content from "@/data/radiance-content.json";
+import {
+  concernDefaults,
+  treatmentCategoryDefaults,
+  treatmentPriceDefaults,
+} from "@/lib/product/defaults";
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS patients (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_source TEXT NOT NULL DEFAULT 'whatsapp_profile', name_verified INTEGER NOT NULL DEFAULT 0, phone TEXT NOT NULL UNIQUE, email TEXT, age INTEGER, gender TEXT, primary_concern TEXT, concern_duration TEXT, treatment_category TEXT, treatment_slug TEXT, lead_score INTEGER NOT NULL DEFAULT 10, lead_temperature TEXT NOT NULL DEFAULT 'COLD', lead_stage TEXT NOT NULL DEFAULT 'new', source TEXT NOT NULL DEFAULT 'whatsapp', campaign TEXT, ai_summary TEXT, assigned_to TEXT DEFAULT 'AI Reception', ai_enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT, last_contact_at TEXT, next_followup_at TEXT)`,
@@ -28,6 +33,13 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS marketing_daily_quota (day TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS marketing_patient_cooldown (patient_id TEXT PRIMARY KEY REFERENCES patients(id) ON DELETE CASCADE, reserved_until TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS webhook_events (id TEXT PRIMARY KEY, external_id TEXT NOT NULL UNIQUE, event_type TEXT NOT NULL, payload_hash TEXT NOT NULL, status TEXT NOT NULL, attempt_count INTEGER NOT NULL DEFAULT 1, error TEXT, created_at TEXT NOT NULL, processed_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS treatment_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT, status TEXT NOT NULL DEFAULT 'APPROVED', active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS concerns (id TEXT PRIMARY KEY, category_id TEXT NOT NULL REFERENCES treatment_categories(id), name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT, treatment_slugs_json TEXT NOT NULL DEFAULT '[]', approved_explanation TEXT, benefits_json TEXT NOT NULL DEFAULT '[]', conversation_options_json TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'NEEDS_REVIEW', active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS treatment_prices (id TEXT PRIMARY KEY, treatment_id TEXT NOT NULL, concern_id TEXT, pricing_type TEXT NOT NULL, min_price INTEGER, max_price INTEGER, unit TEXT, currency TEXT NOT NULL DEFAULT 'INR', display_text TEXT NOT NULL, pricing_note TEXT, requires_assessment INTEGER NOT NULL DEFAULT 1, approved_for_patient_display INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL, approval_status TEXT NOT NULL DEFAULT 'NEEDS_REVIEW', active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS knowledge_items (id TEXT PRIMARY KEY, title TEXT NOT NULL, item_type TEXT NOT NULL, treatment_id TEXT, concern_id TEXT, content TEXT NOT NULL, source TEXT NOT NULL, approval_status TEXT NOT NULL DEFAULT 'DRAFT', approved_by TEXT, approved_at TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS authorized_staff_contacts (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL UNIQUE, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, can_view_summaries INTEGER NOT NULL DEFAULT 0, can_view_appointments INTEGER NOT NULL DEFAULT 0, can_receive_doctor_review INTEGER NOT NULL DEFAULT 0, can_approve_knowledge INTEGER NOT NULL DEFAULT 0, can_receive_alerts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS doctor_reviews (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, question_summary TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'NORMAL', status TEXT NOT NULL DEFAULT 'OPEN', doctor_response TEXT, patient_reply TEXT, save_as_guidance INTEGER NOT NULL DEFAULT 0, resolved_at TEXT, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS ai_feedback (id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, rating TEXT NOT NULL, reason TEXT, notes TEXT, created_by TEXT NOT NULL DEFAULT 'Front Desk', created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_patients_score ON patients(lead_score DESC)`,
@@ -40,6 +52,9 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_outbound_due ON outbound_messages(status, scheduled_for)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_campaign_patient ON outbound_messages(campaign_id, patient_id) WHERE campaign_id IS NOT NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_slot ON appointments(date_time) WHERE status = 'confirmed'`,
+  `CREATE INDEX IF NOT EXISTS idx_doctor_reviews_status ON doctor_reviews(status, priority, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_prices_treatment_status ON treatment_prices(treatment_id, approval_status, active)`,
+  `CREATE INDEX IF NOT EXISTS idx_staff_phone_active ON authorized_staff_contacts(phone, active)`,
 ];
 
 const additiveColumns: Array<[string, string, string]> = [
@@ -54,9 +69,25 @@ const additiveColumns: Array<[string, string, string]> = [
   ["patients", "last_inbound_at", "TEXT"],
   ["patients", "last_outbound_at", "TEXT"],
   ["patients", "service_window_expires_at", "TEXT"],
+  ["patients", "context_notes", "TEXT"],
+  ["patients", "previous_interaction", "TEXT"],
+  ["patients", "internal_notes", "TEXT"],
+  ["patients", "lead_priority", "TEXT NOT NULL DEFAULT 'NORMAL'"],
+  ["patients", "preferred_language", "TEXT NOT NULL DEFAULT 'AUTO'"],
+  ["patients", "callback_at", "TEXT"],
+  ["patients", "contact_lifecycle", "TEXT NOT NULL DEFAULT 'LEAD'"],
+  ["patients", "lost_reason", "TEXT"],
+  ["patients", "reactivation_score", "INTEGER NOT NULL DEFAULT 0"],
+  ["patients", "reactivation_reasons_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["patients", "reactivation_action", "TEXT NOT NULL DEFAULT 'WAIT'"],
   ["messages", "external_message_id", "TEXT"],
   ["content_items", "approved_for_ai", "INTEGER NOT NULL DEFAULT 1"],
   ["content_items", "approved_for_production", "INTEGER NOT NULL DEFAULT 0"],
+  ["content_items", "approval_status", "TEXT NOT NULL DEFAULT 'NEEDS_REVIEW'"],
+  ["treatments", "benefits_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["treatments", "conversation_options_json", "TEXT NOT NULL DEFAULT '[]'"],
+  ["treatments", "approval_status", "TEXT NOT NULL DEFAULT 'APPROVED'"],
+  ["treatments", "active", "INTEGER NOT NULL DEFAULT 1"],
   ["human_tasks", "resolved_by", "TEXT"],
   ["human_tasks", "resolution", "TEXT"],
   ["message_templates", "display_name", "TEXT"],
@@ -78,42 +109,185 @@ const additiveColumns: Array<[string, string, string]> = [
   ["outbound_messages", "failure_message", "TEXT"],
   ["webhook_events", "attempt_count", "INTEGER NOT NULL DEFAULT 1"],
   ["webhook_events", "error", "TEXT"],
-  ["conversation_state", "conversation_phase", "TEXT NOT NULL DEFAULT 'DISCOVERY'"],
+  [
+    "conversation_state",
+    "conversation_phase",
+    "TEXT NOT NULL DEFAULT 'DISCOVERY'",
+  ],
   ["conversation_state", "readiness_score", "INTEGER NOT NULL DEFAULT 0"],
   ["conversation_state", "readiness_reason", "TEXT"],
   ["conversation_state", "primary_objection", "TEXT"],
   ["conversation_state", "next_best_action", "TEXT NOT NULL DEFAULT 'ANSWER'"],
   ["conversation_state", "next_action_reason", "TEXT"],
-  ["conversation_state", "booking_declined_for_now", "INTEGER NOT NULL DEFAULT 0"],
-  ["conversation_state", "conversion_memory_json", "TEXT NOT NULL DEFAULT '{}'"],
+  [
+    "conversation_state",
+    "booking_declined_for_now",
+    "INTEGER NOT NULL DEFAULT 0",
+  ],
+  [
+    "conversation_state",
+    "conversion_memory_json",
+    "TEXT NOT NULL DEFAULT '{}'",
+  ],
+  ["conversation_state", "interaction_type", "TEXT NOT NULL DEFAULT 'NONE'"],
+  [
+    "conversation_state",
+    "interaction_options_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  ],
+  ["conversation_state", "last_option_selected", "TEXT"],
   ["provider_usage", "fallback_reason", "TEXT"],
 ];
 
 function ensureAdditiveColumns() {
   const db = getSqlite();
   for (const [table, column, definition] of additiveColumns) {
-    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-    if (!columns.some((item) => item.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string;
+    }>;
+    if (!columns.some((item) => item.name === column))
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_message_id) WHERE external_message_id IS NOT NULL");
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_message_id) WHERE external_message_id IS NOT NULL",
+  );
 }
 
 function ensureOperationalDefaults() {
   const db = getSqlite();
   const now = nowIso();
-  const insert = db.prepare("INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
-  insert.run("tpl_general_reengagement", "general_reengagement_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics, Bhubaneswar. You had previously contacted us regarding a consultation. If you would still like assistance, reply here and our team can help with the next step. Reply STOP to opt out.", null, "DRAFT", now, now);
-  insert.run("tpl_hair_followup", "hair_enquiry_followup_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.", null, "DRAFT", now, now);
-  insert.run("tpl_skin_followup", "skin_enquiry_followup_v1", "MARKETING", "en", "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.", null, "DRAFT", now, now);
-  insert.run("tpl_appointment_reminder", "appointment_reminder_v1", "UTILITY", "en", "Hi {{firstName}}, this is a reminder about your confirmed consultation at Radiance Clinics. Reply here if you need timing assistance.", null, "DRAFT", now, now);
-  insert.run("tpl_missed_appointment", "missed_appointment_followup_v1", "UTILITY", "en", "Hi {{firstName}}, we noticed you could not attend your consultation. Reply here if you would like reception to help find another time.", null, "DRAFT", now, now);
-  const setting = db.prepare("INSERT OR IGNORE INTO settings (key,value,updated_at) VALUES (?,?,?)");
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+  );
+  insert.run(
+    "tpl_general_reengagement",
+    "general_reengagement_v1",
+    "MARKETING",
+    "en",
+    "Hi {{firstName}}, this is Radiance Clinics, Bhubaneswar. You had previously contacted us regarding a consultation. If you would still like assistance, reply here and our team can help with the next step. Reply STOP to opt out.",
+    null,
+    "DRAFT",
+    now,
+    now,
+  );
+  insert.run(
+    "tpl_hair_followup",
+    "hair_enquiry_followup_v1",
+    "MARKETING",
+    "en",
+    "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.",
+    null,
+    "DRAFT",
+    now,
+    now,
+  );
+  insert.run(
+    "tpl_skin_followup",
+    "skin_enquiry_followup_v1",
+    "MARKETING",
+    "en",
+    "Hi {{firstName}}, this is Radiance Clinics. If you would still like help arranging a consultation, reply here and our reception team will assist. Reply STOP to opt out.",
+    null,
+    "DRAFT",
+    now,
+    now,
+  );
+  insert.run(
+    "tpl_appointment_reminder",
+    "appointment_reminder_v1",
+    "UTILITY",
+    "en",
+    "Hi {{firstName}}, this is a reminder about your confirmed consultation at Radiance Clinics. Reply here if you need timing assistance.",
+    null,
+    "DRAFT",
+    now,
+    now,
+  );
+  insert.run(
+    "tpl_missed_appointment",
+    "missed_appointment_followup_v1",
+    "UTILITY",
+    "en",
+    "Hi {{firstName}}, we noticed you could not attend your consultation. Reply here if you would like reception to help find another time.",
+    null,
+    "DRAFT",
+    now,
+    now,
+  );
+  const setting = db.prepare(
+    "INSERT OR IGNORE INTO settings (key,value,updated_at) VALUES (?,?,?)",
+  );
   setting.run("humanCallScoreThreshold", "85", now);
   setting.run("humanLockMinutes", process.env.HUMAN_LOCK_MINUTES || "30", now);
-  setting.run("autoMarketingDailyLimit", process.env.AUTO_MARKETING_DAILY_LIMIT || "10", now);
-  setting.run("marketingOutreachCooldownDays", process.env.MARKETING_OUTREACH_COOLDOWN_DAYS || "7", now);
-  db.prepare(`INSERT OR IGNORE INTO conversation_state (conversation_id,created_at,updated_at)
-    SELECT id,?,? FROM conversations`).run(now, now);
+  setting.run(
+    "autoMarketingDailyLimit",
+    process.env.AUTO_MARKETING_DAILY_LIMIT || "10",
+    now,
+  );
+  setting.run(
+    "marketingOutreachCooldownDays",
+    process.env.MARKETING_OUTREACH_COOLDOWN_DAYS || "7",
+    now,
+  );
+  db.prepare(
+    `INSERT OR IGNORE INTO conversation_state (conversation_id,created_at,updated_at)
+    SELECT id,?,? FROM conversations`,
+  ).run(now, now);
+
+  const category = db.prepare(
+    "INSERT OR IGNORE INTO treatment_categories (id,name,slug,description,status,active,sort_order,created_at,updated_at) VALUES (?,?,?,?,\'APPROVED\',1,?,?,?)",
+  );
+  for (const item of treatmentCategoryDefaults)
+    category.run(
+      item.id,
+      item.name,
+      item.slug,
+      item.description,
+      item.sortOrder,
+      now,
+      now,
+    );
+  const concern = db.prepare(
+    "INSERT OR IGNORE INTO concerns (id,category_id,name,slug,description,treatment_slugs_json,approved_explanation,benefits_json,conversation_options_json,status,active,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,\'[]\',?,\'APPROVED\',1,?,?,?)",
+  );
+  concernDefaults.forEach((item, index) =>
+    concern.run(
+      item[0],
+      item[1],
+      item[2],
+      item[3],
+      `${item[2]} enquiry`,
+      JSON.stringify(item[4]),
+      `Radiance can explain ${String(item[2]).toLowerCase()} generally; suitability requires doctor assessment.`,
+      JSON.stringify(["Estimated cost", "How it works", "Book consultation"]),
+      (index + 1) * 10,
+      now,
+      now,
+    ),
+  );
+  const price = db.prepare(
+    "INSERT OR IGNORE INTO treatment_prices (id,treatment_id,concern_id,pricing_type,min_price,max_price,unit,currency,display_text,pricing_note,requires_assessment,approved_for_patient_display,source,approval_status,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,\'INR\',?,?,?,?,\'CURRENT_DOCTOR_SUPPLIED\',?,1,?,?)",
+  );
+  for (const item of treatmentPriceDefaults)
+    price.run(
+      item.id,
+      item.treatmentId,
+      item.concernId ?? null,
+      item.pricingType,
+      item.minPrice ?? null,
+      item.maxPrice ?? null,
+      item.unit ?? null,
+      item.displayText,
+      item.pricingNote ?? null,
+      Number(item.requiresAssessment !== false),
+      Number(Boolean(item.approved)),
+      item.approvalStatus || "NEEDS_REVIEW",
+      now,
+      now,
+    );
+  db.prepare(
+    "UPDATE content_items SET approval_status='APPROVED' WHERE approved_for_production=1 AND active=1",
+  ).run();
 }
 
 export function createSchema() {
@@ -125,81 +299,436 @@ export function createSchema() {
 }
 
 const seedPatients = [
-  ["pat_rahul", "Rahul Sharma", "+91 90000 00001", null, null, null, null, 12, "COLD", "new", "test_fixture", "Fresh patient fixture for automated tests.", 1],
-  ["pat_ananya", "Ananya Das", "+91 90000 00002", 27, "Acne scarring on cheeks", "acne_scars", "Skin", 82, "HOT", "qualified", "instagram", "27-year-old patient seeking options for acne scarring. Shared education and awaiting consultation choice.", 1],
-  ["pat_rohit", "Rohit Mohanty", "+91 90000 00003", 34, "Increased hair fall for six months", "hair_loss", "Hair", 64, "WARM", "follow_up", "google_ads", "34-year-old with recent hair fall. Follow-up is due after initial enquiry.", 1],
-  ["pat_sneha", "Sneha Pattnaik", "+91 90000 00004", 31, "Uneven tone and dark spots", "pigmentation", "Skin", 71, "HOT", "booking_offered", "website", "Interested in assessment for pigmentation and has been offered a consultation.", 1],
-  ["pat_debashish", "Debashish Sahu", "+91 90000 00005", 30, "Hair thinning and PRP enquiry", "prp", "Hair", 92, "HOT", "booked", "whatsapp", "30-year-old enquiring about PRP. Consultation booked for tomorrow.", 1],
-  ["pat_priyanka", "Priyanka Nayak", "+91 90000 00006", 36, "Facial patches believed to be melasma", "melasma", "Skin", 58, "WARM", "engaged", "manual", "Seeking general information about facial pigmentation; requires clinical assessment.", 1],
-  ["pat_arjun", "Arjun Das", "+91 90000 00007", null, "General skin concern", "general_skin", "Skin", 31, "COLD", "human_required", "website", "New general skin enquiry requesting a receptionist callback.", 0]
+  [
+    "pat_rahul",
+    "Rahul Sharma",
+    "+91 90000 00001",
+    null,
+    null,
+    null,
+    null,
+    12,
+    "COLD",
+    "new",
+    "test_fixture",
+    "Fresh patient fixture for automated tests.",
+    1,
+  ],
+  [
+    "pat_ananya",
+    "Ananya Das",
+    "+91 90000 00002",
+    27,
+    "Acne scarring on cheeks",
+    "acne_scars",
+    "Skin",
+    82,
+    "HOT",
+    "qualified",
+    "instagram",
+    "27-year-old patient seeking options for acne scarring. Shared education and awaiting consultation choice.",
+    1,
+  ],
+  [
+    "pat_rohit",
+    "Rohit Mohanty",
+    "+91 90000 00003",
+    34,
+    "Increased hair fall for six months",
+    "hair_loss",
+    "Hair",
+    64,
+    "WARM",
+    "follow_up",
+    "google_ads",
+    "34-year-old with recent hair fall. Follow-up is due after initial enquiry.",
+    1,
+  ],
+  [
+    "pat_sneha",
+    "Sneha Pattnaik",
+    "+91 90000 00004",
+    31,
+    "Uneven tone and dark spots",
+    "pigmentation",
+    "Skin",
+    71,
+    "HOT",
+    "booking_offered",
+    "website",
+    "Interested in assessment for pigmentation and has been offered a consultation.",
+    1,
+  ],
+  [
+    "pat_debashish",
+    "Debashish Sahu",
+    "+91 90000 00005",
+    30,
+    "Hair thinning and PRP enquiry",
+    "prp",
+    "Hair",
+    92,
+    "HOT",
+    "booked",
+    "whatsapp",
+    "30-year-old enquiring about PRP. Consultation booked for tomorrow.",
+    1,
+  ],
+  [
+    "pat_priyanka",
+    "Priyanka Nayak",
+    "+91 90000 00006",
+    36,
+    "Facial patches believed to be melasma",
+    "melasma",
+    "Skin",
+    58,
+    "WARM",
+    "engaged",
+    "manual",
+    "Seeking general information about facial pigmentation; requires clinical assessment.",
+    1,
+  ],
+  [
+    "pat_arjun",
+    "Arjun Das",
+    "+91 90000 00007",
+    null,
+    "General skin concern",
+    "general_skin",
+    "Skin",
+    31,
+    "COLD",
+    "human_required",
+    "website",
+    "New general skin enquiry requesting a receptionist callback.",
+    0,
+  ],
 ] as const;
 
 export function seedDatabase(force = false) {
   createSchema();
   const db = getSqlite();
-  const count = (db.prepare("SELECT COUNT(*) AS count FROM patients").get() as { count: number }).count;
+  const count = (
+    db.prepare("SELECT COUNT(*) AS count FROM patients").get() as {
+      count: number;
+    }
+  ).count;
   if (count > 0 && !force) return { seeded: false, patients: count };
 
   const seed = db.transaction(() => {
     db.pragma("foreign_keys = OFF");
-    for (const table of ["marketing_patient_cooldown", "marketing_daily_quota", "outbound_messages", "campaigns", "message_templates", "lead_imports", "provider_usage", "audit_logs", "lead_score_events", "human_tasks", "webhook_events", "scheduled_jobs", "appointments", "messages", "ai_events", "conversations", "patients", "content_items", "treatments", "available_slots", "settings"]) db.prepare(`DELETE FROM ${table}`).run();
+    for (const table of [
+      "ai_feedback",
+      "doctor_reviews",
+      "authorized_staff_contacts",
+      "knowledge_items",
+      "treatment_prices",
+      "concerns",
+      "treatment_categories",
+      "marketing_patient_cooldown",
+      "marketing_daily_quota",
+      "outbound_messages",
+      "campaigns",
+      "message_templates",
+      "lead_imports",
+      "provider_usage",
+      "audit_logs",
+      "lead_score_events",
+      "human_tasks",
+      "webhook_events",
+      "scheduled_jobs",
+      "appointments",
+      "messages",
+      "ai_events",
+      "conversations",
+      "patients",
+      "content_items",
+      "treatments",
+      "available_slots",
+      "settings",
+    ])
+      db.prepare(`DELETE FROM ${table}`).run();
     db.pragma("foreign_keys = ON");
     const now = nowIso();
-    const insertTreatment = db.prepare("INSERT INTO treatments (id,name,slug,category,description,approved_response_guidance,booking_enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
-    for (const item of knowledge.treatments) insertTreatment.run(`tr_${item.slug}`, item.name, item.slug, item.category, item.description, knowledge.clinic.safety, 1, now, now);
+    const insertTreatment = db.prepare(
+      "INSERT INTO treatments (id,name,slug,category,description,approved_response_guidance,booking_enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    );
+    for (const item of knowledge.treatments)
+      insertTreatment.run(
+        `tr_${item.slug}`,
+        item.name,
+        item.slug,
+        item.category,
+        item.description,
+        knowledge.clinic.safety,
+        1,
+        now,
+        now,
+      );
 
-    const insertContent = db.prepare("INSERT INTO content_items (id,type,title,description,url,thumbnail_url,treatment_slug,tags_json,when_to_send,priority,active,approved_for_ai,approved_for_production,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)");
+    const insertContent = db.prepare(
+      "INSERT INTO content_items (id,type,title,description,url,thumbnail_url,treatment_slug,tags_json,when_to_send,priority,active,approved_for_ai,approved_for_production,approval_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
+    );
     for (const item of content) {
-      const approved = /(?:youtube\.com\/(?:watch\?v=8qYMw935MF8|@RadianceClinics)|youtu\.be\/8qYMw935MF8)/i.test(item.url);
-      insertContent.run(item.id, item.type, item.title, item.description, item.url, item.thumbnailUrl, item.treatmentSlug, JSON.stringify(item.tags), item.whenToSend, item.priority, 1, Number(approved), now);
+      const approved =
+        /(?:youtube\.com\/(?:watch\?v=8qYMw935MF8|@RadianceClinics)|youtu\.be\/8qYMw935MF8)/i.test(
+          item.url,
+        );
+      insertContent.run(
+        item.id,
+        item.type,
+        item.title,
+        item.description,
+        item.url,
+        item.thumbnailUrl,
+        item.treatmentSlug,
+        JSON.stringify(item.tags),
+        item.whenToSend,
+        item.priority,
+        1,
+        Number(approved),
+        approved ? "APPROVED" : "NEEDS_REVIEW",
+        now,
+      );
     }
 
-    const insertPatient = db.prepare("INSERT INTO patients (id,name,phone,age,primary_concern,treatment_slug,treatment_category,lead_score,lead_temperature,lead_stage,source,ai_summary,ai_enabled,assigned_to,created_at,updated_at,last_contact_at,next_followup_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    const insertConversation = db.prepare("INSERT INTO conversations (id,patient_id,channel,status,unread_count,ai_enabled,last_message_at,created_at) VALUES (?,?,?,?,?,?,?,?)");
-    const insertMessage = db.prepare("INSERT INTO messages (id,conversation_id,patient_id,direction,sender_type,message_type,content,delivery_status,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)");
-    const insertEvent = db.prepare("INSERT INTO ai_events (id,patient_id,conversation_id,event_type,title,details,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?)");
+    const insertPatient = db.prepare(
+      "INSERT INTO patients (id,name,phone,age,primary_concern,treatment_slug,treatment_category,lead_score,lead_temperature,lead_stage,source,ai_summary,ai_enabled,assigned_to,created_at,updated_at,last_contact_at,next_followup_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    );
+    const insertConversation = db.prepare(
+      "INSERT INTO conversations (id,patient_id,channel,status,unread_count,ai_enabled,last_message_at,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    );
+    const insertMessage = db.prepare(
+      "INSERT INTO messages (id,conversation_id,patient_id,direction,sender_type,message_type,content,delivery_status,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    );
+    const insertEvent = db.prepare(
+      "INSERT INTO ai_events (id,patient_id,conversation_id,event_type,title,details,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    );
 
     seedPatients.forEach((p, index) => {
-      const [id, name, phone, age, concern, slug, category, score, temp, stage, source, summary, aiEnabled] = p;
+      const [
+        id,
+        name,
+        phone,
+        age,
+        concern,
+        slug,
+        category,
+        score,
+        temp,
+        stage,
+        source,
+        summary,
+        aiEnabled,
+      ] = p;
       const conversationId = `con_${id.slice(4)}`;
-      const messageTime = subMinutes(new Date(), (index + 1) * 11).toISOString();
-      insertPatient.run(id, name, phone, age, concern, slug, category, score, temp, stage, source, summary, aiEnabled, aiEnabled ? "AI Reception" : "Front Desk", now, now, messageTime, index === 2 ? now : null);
-      insertConversation.run(conversationId, id, "local", "open", index === 6 ? 1 : 0, aiEnabled, messageTime, now);
+      const messageTime = subMinutes(
+        new Date(),
+        (index + 1) * 11,
+      ).toISOString();
+      insertPatient.run(
+        id,
+        name,
+        phone,
+        age,
+        concern,
+        slug,
+        category,
+        score,
+        temp,
+        stage,
+        source,
+        summary,
+        aiEnabled,
+        aiEnabled ? "AI Reception" : "Front Desk",
+        now,
+        now,
+        messageTime,
+        index === 2 ? now : null,
+      );
+      insertConversation.run(
+        conversationId,
+        id,
+        "local",
+        "open",
+        index === 6 ? 1 : 0,
+        aiEnabled,
+        messageTime,
+        now,
+      );
       if (id !== "pat_rahul") {
-        const patientText = concern ? `Hi, I wanted to ask about ${String(concern).toLowerCase()}.` : "Hi, I need some help.";
-        insertMessage.run(makeId("msg"), conversationId, id, "inbound", "patient", "text", patientText, "delivered", "{}", subMinutes(new Date(messageTime), 2).toISOString());
-        const reply = aiEnabled ? "Thank you for sharing that. A consultation is the best way for the doctor to assess your concern properly. I can help you find a convenient time." : "I’ve alerted our reception team so a person can help you directly.";
-        insertMessage.run(makeId("msg"), conversationId, id, "outbound", aiEnabled ? "ai" : "system", "text", reply, "delivered", "{}", messageTime);
-        insertEvent.run(makeId("evt"), id, conversationId, aiEnabled ? "INTENT_DETECTED" : "HUMAN_ESCALATION", aiEnabled ? `${slug?.replaceAll("_", " ")} intent detected` : "Human attention requested", summary, "{}", messageTime);
+        const patientText = concern
+          ? `Hi, I wanted to ask about ${String(concern).toLowerCase()}.`
+          : "Hi, I need some help.";
+        insertMessage.run(
+          makeId("msg"),
+          conversationId,
+          id,
+          "inbound",
+          "patient",
+          "text",
+          patientText,
+          "delivered",
+          "{}",
+          subMinutes(new Date(messageTime), 2).toISOString(),
+        );
+        const reply = aiEnabled
+          ? "Thank you for sharing that. A consultation is the best way for the doctor to assess your concern properly. I can help you find a convenient time."
+          : "I’ve alerted our reception team so a person can help you directly.";
+        insertMessage.run(
+          makeId("msg"),
+          conversationId,
+          id,
+          "outbound",
+          aiEnabled ? "ai" : "system",
+          "text",
+          reply,
+          "delivered",
+          "{}",
+          messageTime,
+        );
+        insertEvent.run(
+          makeId("evt"),
+          id,
+          conversationId,
+          aiEnabled ? "INTENT_DETECTED" : "HUMAN_ESCALATION",
+          aiEnabled
+            ? `${slug?.replaceAll("_", " ")} intent detected`
+            : "Human attention requested",
+          summary,
+          "{}",
+          messageTime,
+        );
       }
     });
 
     const tomorrow = format(addDays(new Date(), 1), "yyyy-MM-dd");
     const bookedAt = `${tomorrow}T11:00:00+05:30`;
-    db.prepare("INSERT INTO appointments (id,patient_id,conversation_id,treatment_slug,date_time,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run("apt_debashish", "pat_debashish", "con_debashish", "prp", bookedAt, "confirmed", "Automated test fixture", now, now);
-    insertEvent.run(makeId("evt"), "pat_debashish", "con_debashish", "APPOINTMENT_CREATED", "Consultation booked", "Tomorrow at 11:00 AM", "{}", now);
+    db.prepare(
+      "INSERT INTO appointments (id,patient_id,conversation_id,treatment_slug,date_time,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run(
+      "apt_debashish",
+      "pat_debashish",
+      "con_debashish",
+      "prp",
+      bookedAt,
+      "confirmed",
+      "Automated test fixture",
+      now,
+      now,
+    );
+    insertEvent.run(
+      makeId("evt"),
+      "pat_debashish",
+      "con_debashish",
+      "APPOINTMENT_CREATED",
+      "Consultation booked",
+      "Tomorrow at 11:00 AM",
+      "{}",
+      now,
+    );
 
-    const slotTimes = ["10:00", "10:30", "11:00", "11:30", "12:00", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30"];
-    const insertSlot = db.prepare("INSERT OR IGNORE INTO available_slots (id,date,time,active) VALUES (?,?,?,1)");
+    const slotTimes = [
+      "10:00",
+      "10:30",
+      "11:00",
+      "11:30",
+      "12:00",
+      "12:30",
+      "13:00",
+      "15:30",
+      "16:00",
+      "16:30",
+      "17:00",
+      "17:30",
+      "18:00",
+      "18:30",
+      "19:00",
+    ];
+    const insertSlot = db.prepare(
+      "INSERT OR IGNORE INTO available_slots (id,date,time,active) VALUES (?,?,?,1)",
+    );
     for (let day = 0; day < 15; day += 1) {
       const date = format(addDays(new Date(), day), "yyyy-MM-dd");
-      for (const time of slotTimes) insertSlot.run(`slot_${date}_${time.replace(":", "")}`, date, time);
+      for (const time of slotTimes)
+        insertSlot.run(`slot_${date}_${time.replace(":", "")}`, date, time);
     }
-    const insertSetting = db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES (?,?,?)");
+    const insertSetting = db.prepare(
+      "INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES (?,?,?)",
+    );
     const settings = {
-      appointmentScheduleJson: JSON.stringify({ weekly: { sunday: [], monday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }], tuesday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }], wednesday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }], thursday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }], friday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }], saturday: [{ start: "10:00", end: "12:30" }, { start: "16:00", end: "18:30" }] }, slotMinutes: 30, bookingLeadMinutes: 30, maxAdvanceDays: 15, closedDates: [], blockedSlots: [] }),
+      appointmentScheduleJson: JSON.stringify({
+        weekly: {
+          sunday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          monday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          tuesday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          wednesday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          thursday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          friday: [
+            { start: "10:00", end: "13:30" },
+            { start: "15:30", end: "19:30" },
+          ],
+          saturday: [],
+        },
+        slotMinutes: 30,
+        bookingLeadMinutes: 30,
+        maxAdvanceDays: 15,
+        closedDates: [],
+        blockedSlots: [],
+      }),
       appointmentConfirmation: "true",
       appointmentReminder1: "true",
       appointmentReminder2: "true",
       noShowRecovery: "true",
-      dormantLeadFollowup: "true"
+      dormantLeadFollowup: "true",
     };
-    Object.entries(settings).forEach(([key, value]) => insertSetting.run(key, value, now));
-    const insertTemplate = db.prepare("INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
-    insertTemplate.run("tpl_consultation", "Consultation invitation", "MARKETING", "en", "Hi {{firstName}}, thank you for contacting Radiance Clinics. Would you like help finding a consultation time for {{concern}}? Reply STOP to opt out.", null, "DRAFT", now, now);
-    insertTemplate.run("tpl_followup", "Gentle enquiry follow-up", "MARKETING", "en", "Hi {{firstName}}, we are checking whether you still need help with {{concern}}. Reply here for assistance or STOP to opt out.", null, "DRAFT", now, now);
+    Object.entries(settings).forEach(([key, value]) =>
+      insertSetting.run(key, value, now),
+    );
+    const insertTemplate = db.prepare(
+      "INSERT OR IGNORE INTO message_templates (id,name,category,language,body,meta_template_name,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    );
+    insertTemplate.run(
+      "tpl_consultation",
+      "Consultation invitation",
+      "MARKETING",
+      "en",
+      "Hi {{firstName}}, thank you for contacting Radiance Clinics. Would you like help finding a consultation time for {{concern}}? Reply STOP to opt out.",
+      null,
+      "DRAFT",
+      now,
+      now,
+    );
+    insertTemplate.run(
+      "tpl_followup",
+      "Gentle enquiry follow-up",
+      "MARKETING",
+      "en",
+      "Hi {{firstName}}, we are checking whether you still need help with {{concern}}. Reply here for assistance or STOP to opt out.",
+      null,
+      "DRAFT",
+      now,
+      now,
+    );
   });
   seed();
+  ensureOperationalDefaults();
   return { seeded: true, patients: seedPatients.length };
 }
 

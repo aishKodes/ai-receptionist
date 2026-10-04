@@ -2,6 +2,8 @@ import { getDatabase, nowIso } from "@/db";
 import { NormalizedInboundSchema, type NormalizedInbound } from "@/lib/ai/schemas";
 import { processPatientMessage } from "@/lib/ai/orchestrator";
 import { deliverConversationRepliesAfter, messageCursor } from "@/lib/channels/delivery";
+import { getMessageChannel } from "@/lib/channels";
+import { answerStaffCommand, findAuthorizedStaff } from "@/lib/product/staff-mode";
 import { addAudit, addEvent, addMessage, createHumanTask, ensurePatientForChannel, getPatientContext, resolveHumanLockForInbound, updatePatient } from "@/lib/services/repository";
 
 const optOutPattern = /^(?:stop|unsubscribe|remove me|don't message me|do not message me|opt out)[.!\s]*$/i;
@@ -20,6 +22,19 @@ export async function processIncomingMessage(raw: NormalizedInbound) {
   if (incoming.externalMessageId) {
     const duplicate = db.prepare("SELECT id FROM messages WHERE external_message_id=?").get(incoming.externalMessageId);
     if (duplicate) return { duplicate: true, replied: false };
+  }
+  if (incoming.from) {
+    const staff = findAuthorizedStaff(incoming.from);
+    if (staff) {
+      if (incoming.messageType !== "text" && incoming.messageType !== "interactive") {
+        const text = "Staff command mode accepts text questions only. Please open the CRM for media review.";
+        const delivery = await getMessageChannel().sendText({ to: staff.phone, text });
+        return { staffMode: true, intent: "UNSUPPORTED_MEDIA", replied: true, deliveries: [delivery] };
+      }
+      const result = answerStaffCommand(staff, incoming.text);
+      const delivery = await getMessageChannel().sendText({ to: staff.phone, text: result.answer });
+      return { staffMode: true, intent: result.intent, replied: true, deliveries: [delivery] };
+    }
   }
   const context = incoming.patientId
     ? getPatientContext(incoming.patientId)

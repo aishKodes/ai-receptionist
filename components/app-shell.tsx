@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, CalendarDays, ChevronRight, Inbox, Library, LogOut, Megaphone, PhoneCall, Settings, Sparkles, Users } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronRight, Inbox, Library, LogOut, Megaphone, MessageCircleQuestion, PhoneCall, Settings, Sparkles, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
 
 const nav = [
-  ["/inbox", "Inbox", Inbox], ["/leads", "Leads", Users], ["/human", "Attention", PhoneCall], ["/appointments", "Appointments", CalendarDays],
-  ["/outreach", "Outreach", Megaphone], ["/content", "Content", Library], ["/analytics", "Analytics", BarChart3], ["/settings", "Settings", Settings],
+  ["/inbox", "Inbox", Inbox], ["/leads", "Leads", Users], ["/attention", "Attention", PhoneCall], ["/appointments", "Appointments", CalendarDays],
+  ["/outreach", "Outreach", Megaphone], ["/content", "Content", Library], ["/analytics", "Analytics", BarChart3], ["/ask-radiance", "Ask Radiance", MessageCircleQuestion], ["/settings", "Settings", Settings],
 ] as const;
 
 export function AppShell({ children, title, eyebrow, action }: { children: ReactNode; title?: string; eyebrow?: string; action?: ReactNode }) {

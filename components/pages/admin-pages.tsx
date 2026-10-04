@@ -3,119 +3,1898 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { addDays, format } from "date-fns";
-import { Activity, AlarmClock, ArrowRight, BarChart3, Bot, CalendarCheck2, CalendarDays, Check, CheckCircle2, CircleAlert, Clock3, ExternalLink, Eye, FileQuestion, Flame, Globe2, Image as ImageIcon, Library, LoaderCircle, MessageCircle, Pencil, PhoneCall, Play, Plus, RefreshCcw, Search, Send, Sparkles, ToggleLeft, ToggleRight, Trash2, UserPlus, UserRound, Users, WandSparkles, XCircle } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Activity,
+  AlarmClock,
+  ArrowRight,
+  BarChart3,
+  Bot,
+  CalendarCheck2,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  ExternalLink,
+  Eye,
+  FileQuestion,
+  Flame,
+  Globe2,
+  Image as ImageIcon,
+  Library,
+  LoaderCircle,
+  MessageCircle,
+  Pencil,
+  PhoneCall,
+  Play,
+  Plus,
+  RefreshCcw,
+  Search,
+  Send,
+  Sparkles,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+  UserPlus,
+  UserRound,
+  Users,
+  WandSparkles,
+  XCircle,
+} from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
 import { AppShell, PageLoader } from "@/components/app-shell";
-import { Avatar, dateTime, relativeDate, StatusBadge, titleCase } from "@/components/shared";
+import {
+  Avatar,
+  dateTime,
+  relativeDate,
+  StatusBadge,
+  titleCase,
+} from "@/components/shared";
 import { useRadianceState } from "@/components/use-radiance-state";
 import type { ContentItem } from "@/lib/ui-types";
 
-const scoreColor = (score: number) => score >= 70 ? "hot" : score >= 40 ? "warm" : "cold";
-const defaultContent: Partial<ContentItem> = { type: "website", title: "", description: "", url: "", treatmentSlug: "hair_transplant", whenToSend: "When this topic is relevant", priority: 5, active: true, tags: [] };
+const scoreColor = (score: number) =>
+  score >= 70 ? "hot" : score >= 40 ? "warm" : "cold";
+const defaultContent: Partial<ContentItem> = {
+  type: "website",
+  title: "",
+  description: "",
+  url: "",
+  treatmentSlug: "hair_transplant",
+  whenToSend: "When this topic is relevant",
+  priority: 5,
+  active: true,
+  tags: [],
+  approvalStatus: "DRAFT",
+  approvedForProduction: false,
+};
 
 export function LeadsPage() {
-  const { data } = useRadianceState(); const [filter, setFilter] = useState("All"); const [search, setSearch] = useState("");
-  const patients = useMemo(() => (data?.patients || []).filter((patient) => {
-    const matches = `${patient.name} ${patient.phone} ${patient.treatmentSlug || ""} ${patient.source || ""} ${patient.campaign || ""}`.toLowerCase().includes(search.toLowerCase());
-    if (!matches) return false;
-    if (filter === "Hot") return patient.leadTemperature === "HOT";
-    if (filter === "Warm") return patient.leadTemperature === "WARM";
-    if (filter === "Cold") return patient.leadTemperature === "COLD";
-    if (filter === "Booked") return patient.leadStage === "booked";
-    if (filter === "Follow-up Due") return Boolean(patient.nextFollowupAt);
-    if (filter === "Human Required") return !patient.aiEnabled;
-    if (filter === "Needs Call") return data?.humanTasks.some((task) => task.patientId === patient.id && task.status === "OPEN" && task.type === "CALL");
-    if (filter === "Doctor Review") return data?.humanTasks.some((task) => task.patientId === patient.id && task.status === "OPEN" && task.type === "DOCTOR_REVIEW");
-    if (filter === "Outreach Eligible") return patient.whatsappOptInStatus === "CONFIRMED" && !patient.doNotContact && !patient.invalidPhone;
-    if (filter === "Opted Out") return Boolean(patient.doNotContact) || patient.whatsappOptInStatus === "REVOKED";
-    return true;
-  }).sort((a, b) => b.leadScore - a.leadScore), [data?.patients, data?.humanTasks, filter, search]);
-  return <AppShell title="Patient leads" eyebrow="CRM" action={<Link href="/leads/import" className="primary-button"><UserPlus size={16}/>Import leads</Link>}>{!data ? <PageLoader/> : <div className="page-content">
-    <div className="metric-row compact"><Metric icon={<Users/>} label="All leads" value={data.analytics.total}/><Metric icon={<Flame/>} label="Hot leads" value={data.analytics.hot} tone="hot"/><Metric icon={<CalendarCheck2/>} label="Booked" value={data.analytics.booked} tone="green"/><Metric icon={<UserRound/>} label="Human attention" value={data.analytics.human} tone="purple"/></div>
-    <section className="surface table-surface"><div className="table-toolbar"><label className="search-field"><Search size={16}/><input placeholder="Search name, phone, treatment or campaign" value={search} onChange={(event) => setSearch(event.target.value)}/></label><div className="segmented">{["All","Hot","Warm","Cold","Booked","Needs Call","Doctor Review","Human Required","Outreach Eligible","Opted Out"].map((item) => <button className={filter === item ? "active" : ""} onClick={() => setFilter(item)} key={item}>{item}</button>)}</div></div>
-      <div className="data-table-wrap"><table className="data-table"><thead><tr><th>Patient</th><th>Treatment</th><th>Score</th><th>Temperature</th><th>Stage</th><th>Last contact</th><th>Next action</th><th>Source</th><th>Mode</th><th/></tr></thead><tbody>{patients.map((patient) => <tr key={patient.id}><td><div className="patient-cell"><Avatar patient={patient} size="sm"/><div><strong>{patient.name}</strong><span>{patient.phone}</span></div></div></td><td><strong>{titleCase(patient.treatmentSlug)}</strong></td><td><div className={`score-chip ${scoreColor(patient.leadScore)}`}>{patient.leadScore}</div></td><td><StatusBadge kind="temperature" value={patient.leadTemperature}/></td><td><StatusBadge kind="stage" value={patient.leadStage}/></td><td>{relativeDate(patient.lastContactAt)}</td><td>{patient.nextFollowupAt ? dateTime(patient.nextFollowupAt) : patient.leadStage === "booked" ? "Appointment care" : "Continue conversation"}</td><td><StatusBadge kind="source" value={patient.source}/></td><td><span className={`mode-inline ${patient.aiEnabled ? "ai" : "human"}`}>{patient.aiEnabled ? <Bot size={13}/> : <UserRound size={13}/>} {patient.aiEnabled ? "AI" : "Human"}</span></td><td><Link className="row-action" href={`/leads/${patient.id}`}><ArrowRight size={16}/></Link></td></tr>)}</tbody></table></div>
-    </section></div>}</AppShell>;
+  const { data } = useRadianceState();
+  const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const patients = useMemo(
+    () =>
+      (data?.patients || [])
+        .filter((patient) => {
+          const matches =
+            `${patient.name} ${patient.phone} ${patient.treatmentSlug || ""} ${patient.source || ""} ${patient.campaign || ""}`
+              .toLowerCase()
+              .includes(search.toLowerCase());
+          if (!matches) return false;
+          if (filter === "Hot") return patient.leadTemperature === "HOT";
+          if (filter === "Warm") return patient.leadTemperature === "WARM";
+          if (filter === "Cold") return patient.leadTemperature === "COLD";
+          if (filter === "Booked") return patient.leadStage === "booked";
+          if (filter === "Follow-up Due")
+            return Boolean(patient.nextFollowupAt);
+          if (filter === "Human Required") return !patient.aiEnabled;
+          if (filter === "Needs Call")
+            return data?.humanTasks.some(
+              (task) =>
+                task.patientId === patient.id &&
+                task.status === "OPEN" &&
+                task.type === "CALL",
+            );
+          if (filter === "Doctor Review")
+            return data?.humanTasks.some(
+              (task) =>
+                task.patientId === patient.id &&
+                task.status === "OPEN" &&
+                task.type === "DOCTOR_REVIEW",
+            );
+          if (filter === "Outreach Eligible")
+            return (
+              patient.whatsappOptInStatus === "CONFIRMED" &&
+              !patient.doNotContact &&
+              !patient.invalidPhone
+            );
+          if (filter === "Opted Out")
+            return (
+              Boolean(patient.doNotContact) ||
+              patient.whatsappOptInStatus === "REVOKED"
+            );
+          return true;
+        })
+        .sort((a, b) => b.leadScore - a.leadScore),
+    [data?.patients, data?.humanTasks, filter, search],
+  );
+  return (
+    <AppShell
+      title="Patient leads"
+      eyebrow="CRM"
+      action={
+        <div className="header-actions">
+          <Link href="/leads/new" className="primary-button">
+            <Plus size={16} />
+            New lead
+          </Link>
+          <Link href="/leads/import" className="secondary-button">
+            <UserPlus size={16} />
+            Import
+          </Link>
+        </div>
+      }
+    >
+      {!data ? (
+        <PageLoader />
+      ) : (
+        <div className="page-content">
+          <div className="metric-row compact">
+            <Metric
+              icon={<Users />}
+              label="All leads"
+              value={data.analytics.total}
+            />
+            <Metric
+              icon={<Flame />}
+              label="Hot leads"
+              value={data.analytics.hot}
+              tone="hot"
+            />
+            <Metric
+              icon={<CalendarCheck2 />}
+              label="Booked"
+              value={data.analytics.booked}
+              tone="green"
+            />
+            <Metric
+              icon={<UserRound />}
+              label="Human attention"
+              value={data.analytics.human}
+              tone="purple"
+            />
+          </div>
+          <section className="surface table-surface">
+            <div className="table-toolbar">
+              <label className="search-field">
+                <Search size={16} />
+                <input
+                  placeholder="Search name, phone, treatment or campaign"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </label>
+              <div className="segmented">
+                {[
+                  "All",
+                  "Hot",
+                  "Warm",
+                  "Cold",
+                  "Booked",
+                  "Needs Call",
+                  "Doctor Review",
+                  "Human Required",
+                  "Outreach Eligible",
+                  "Opted Out",
+                ].map((item) => (
+                  <button
+                    className={filter === item ? "active" : ""}
+                    onClick={() => setFilter(item)}
+                    key={item}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Treatment</th>
+                    <th>Score</th>
+                    <th>Temperature</th>
+                    <th>Stage</th>
+                    <th>Last contact</th>
+                    <th>Next action</th>
+                    <th>Source</th>
+                    <th>Mode</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {patients.map((patient) => (
+                    <tr key={patient.id}>
+                      <td>
+                        <div className="patient-cell">
+                          <Avatar patient={patient} size="sm" />
+                          <div>
+                            <strong>{patient.name}</strong>
+                            <span>{patient.phone}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{titleCase(patient.treatmentSlug)}</strong>
+                      </td>
+                      <td>
+                        <div
+                          className={`score-chip ${scoreColor(patient.leadScore)}`}
+                        >
+                          {patient.leadScore}
+                        </div>
+                      </td>
+                      <td>
+                        <StatusBadge
+                          kind="temperature"
+                          value={patient.leadTemperature}
+                        />
+                      </td>
+                      <td>
+                        <StatusBadge kind="stage" value={patient.leadStage} />
+                      </td>
+                      <td>{relativeDate(patient.lastContactAt)}</td>
+                      <td>
+                        {patient.nextFollowupAt
+                          ? dateTime(patient.nextFollowupAt)
+                          : patient.leadStage === "booked"
+                            ? "Appointment care"
+                            : "Continue conversation"}
+                      </td>
+                      <td>
+                        <StatusBadge kind="source" value={patient.source} />
+                      </td>
+                      <td>
+                        <span
+                          className={`mode-inline ${patient.aiEnabled ? "ai" : "human"}`}
+                        >
+                          {patient.aiEnabled ? (
+                            <Bot size={13} />
+                          ) : (
+                            <UserRound size={13} />
+                          )}{" "}
+                          {patient.aiEnabled ? "AI" : "Human"}
+                        </span>
+                      </td>
+                      <td>
+                        <Link
+                          className="row-action"
+                          href={`/leads/${patient.id}`}
+                        >
+                          <ArrowRight size={16} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+    </AppShell>
+  );
 }
 
 export function LeadDetailPage({ patientId }: { patientId: string }) {
-  const { data, refresh } = useRadianceState(patientId); const [question, setQuestion] = useState(""); const [answer, setAnswer] = useState(""); const [asking, setAsking] = useState(false);
-  const selected = data?.selected; const patient = selected?.patient;
-  async function ask() { if (!question.trim()) return; setAsking(true); const response = await fetch(`/api/patients/${patientId}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }); const result = await response.json(); setAnswer(result.answer || result.error); setAsking(false); refresh(); }
-  if (!data || !selected || !patient) return <AppShell title="Patient profile"><PageLoader/></AppShell>;
-  return <AppShell eyebrow="CRM · Patient profile" title={patient.name} action={<div className="header-actions"><StatusBadge value={`${patient.leadScore} ${patient.leadTemperature}`} kind="temperature"/><Link className="primary-button" href={`/inbox?patientId=${patient.id}`}><MessageCircle size={16}/>Open conversation</Link></div>}><div className="page-content detail-layout">
-    <section className="detail-main"><div className="profile-strip surface"><Avatar patient={patient} size="lg"/><div><span>{patient.phone}</span><strong>{titleCase(patient.treatmentSlug)}</strong><p>{patient.primaryConcern || "Concern not yet captured"}</p></div><div className="profile-score"><span>LEAD SCORE</span><strong>{patient.leadScore}</strong><small>{patient.leadTemperature}</small></div></div>
-      <div className="detail-card-grid"><InfoCard label="Patient information" rows={[["Age", String(patient.age || "Not shared")],["Source",titleCase(patient.source)],["Assigned to",patient.assignedTo || "AI Reception"],["Language",titleCase(String(selected.state.preferredLanguage || "AUTO"))]]}/><InfoCard label="Current status" rows={[["Stage",titleCase(patient.leadStage)],["AI mode",patient.aiEnabled ? "Active" : "Paused"],["Last contact",dateTime(patient.lastContactAt)]]}/><InfoCard label="Conversation intelligence" rows={[["Readiness",`${String(selected.state.readinessScore || 0)} / 100`],["Readiness reason",String(selected.state.readinessReason || "Not yet assessed")],["Phase",titleCase(String(selected.state.conversationPhase || "DISCOVERY"))],["Main objection",titleCase(String(selected.state.primaryObjection || "None"))],["Next action",titleCase(String(selected.state.nextBestAction || "ANSWER"))]]}/>{selected.appointment && <InfoCard label="Appointment" accent rows={[["Date & time",dateTime(selected.appointment.dateTime)],["Status",titleCase(selected.appointment.status)],["Treatment",titleCase(selected.appointment.treatmentSlug)]]}/>}</div>
-      <section className="surface summary-card"><div className="section-title"><Sparkles size={17}/><span>AI patient summary</span></div><p>{patient.aiSummary || "A factual summary will appear after the first conversation."}</p></section>
-      <section className="surface summary-card"><div className="section-title"><BarChart3 size={17}/><span>Lead score · why</span></div>{selected.scoreEvents?.[0] ? <div className="score-reasons">{(JSON.parse(selected.scoreEvents[0].reasonCodesJson || "[]") as string[]).map((reason) => <span key={reason}>{reason.replaceAll("_", " ")}</span>)}</div> : <p>Score reasons will appear after the next patient message.</p>}</section>
-      <section className="surface timeline-card"><div className="section-title"><Activity size={17}/><span>Patient timeline</span></div><div className="timeline">{selected.events.map((event) => <div className="timeline-item" key={event.id}><div className="timeline-time">{new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit" }).format(new Date(event.createdAt))}</div><div className="timeline-marker"/><div><strong>{event.title}</strong>{event.details && <p>{event.details}</p>}</div></div>)}</div></section>
-    </section>
-    <aside className="detail-aside"><section className="surface ask-ai-card"><div className="ask-ai-header"><div className="ai-orb"><WandSparkles size={19}/></div><div><strong>Ask AI about this patient</strong><span>Answers from CRM + transcript only</span></div></div><div className="prompt-chips">{["What does this patient want?","What should reception do next?","Why is this lead hot?"].map((item) => <button onClick={() => setQuestion(item)} key={item}>{item}</button>)}</div>{answer && <div className="ai-answer"><Sparkles size={15}/><p>{answer}</p></div>}<div className="ask-composer"><input value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => event.key === "Enter" && ask()} placeholder="Ask about this patient…"/><button onClick={ask} disabled={asking}>{asking ? <LoaderCircle className="spin" size={17}/> : <Send size={17}/>}</button></div></section>
-      <section className="surface"><div className="section-title"><Library size={17}/><span>Content sent</span></div><div className="aside-list">{selected.sentContent.length ? selected.sentContent.map((item) => <a href={item.url} target="_blank" rel="noreferrer" key={item.id}><Play size={15}/><div><strong>{item.title}</strong><span>{titleCase(item.type)}</span></div><ExternalLink size={14}/></a>) : <div className="mini-empty">No educational content sent yet.</div>}</div></section>
-      <section className="surface"><div className="section-title"><PhoneCall size={17}/><span>Human tasks</span></div><div className="aside-list">{data.humanTasks.filter((item) => item.patientId === patient.id).length ? data.humanTasks.filter((item) => item.patientId === patient.id).map((item) => <Link href="/human" key={item.id}><UserRound size={15}/><div><strong>{item.title}</strong><span>{item.status} · {item.priority}</span></div><ArrowRight size={14}/></Link>) : <div className="mini-empty">No human tasks.</div>}</div></section>
-      <section className="surface"><div className="section-title"><Send size={17}/><span>Outreach history</span></div><div className="aside-list">{selected.outreachHistory?.length ? selected.outreachHistory.map((item) => <div className="state-row" key={String(item.id)}><span>{String(item.campaignName || "Direct outreach")} · {String(item.templateCategory || "Unknown")}</span><strong>{String(item.status)}</strong></div>) : <div className="mini-empty">No outreach sent.</div>}</div></section>
-      <section className="surface"><div className="section-title"><MessageCircle size={17}/><span>Conversation</span></div><div className="transcript-preview">{selected.messages.slice(-6).map((message) => <div className={message.senderType === "patient" ? "patient" : "clinic"} key={message.id}><span>{titleCase(message.senderType)}</span><p>{message.content}</p></div>)}</div></section>
-    </aside>
-  </div></AppShell>;
+  const { data, refresh } = useRadianceState(patientId);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [asking, setAsking] = useState(false);
+  const selected = data?.selected;
+  const patient = selected?.patient;
+  async function ask() {
+    if (!question.trim()) return;
+    setAsking(true);
+    const response = await fetch(`/api/patients/${patientId}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const result = await response.json();
+    setAnswer(result.answer || result.error);
+    setAsking(false);
+    refresh();
+  }
+  if (!data || !selected || !patient)
+    return (
+      <AppShell title="Patient profile">
+        <PageLoader />
+      </AppShell>
+    );
+  return (
+    <AppShell
+      eyebrow="CRM · Patient profile"
+      title={patient.name}
+      action={
+        <div className="header-actions">
+          <StatusBadge
+            value={`${patient.leadScore} ${patient.leadTemperature}`}
+            kind="temperature"
+          />
+          <Link
+            className="primary-button"
+            href={`/inbox?patientId=${patient.id}`}
+          >
+            <MessageCircle size={16} />
+            Open conversation
+          </Link>
+        </div>
+      }
+    >
+      <div className="page-content detail-layout">
+        <section className="detail-main">
+          <div className="profile-strip surface">
+            <Avatar patient={patient} size="lg" />
+            <div>
+              <span>{patient.phone}</span>
+              <strong>{titleCase(patient.treatmentSlug)}</strong>
+              <p>{patient.primaryConcern || "Concern not yet captured"}</p>
+            </div>
+            <div className="profile-score">
+              <span>LEAD SCORE</span>
+              <strong>{patient.leadScore}</strong>
+              <small>{patient.leadTemperature}</small>
+            </div>
+          </div>
+          <div className="detail-card-grid">
+            <InfoCard
+              label="Patient information"
+              rows={[
+                ["Age", String(patient.age || "Not shared")],
+                ["Source", titleCase(patient.source)],
+                ["Lifecycle", titleCase(patient.contactLifecycle || "LEAD")],
+                ["Assigned to", patient.assignedTo || "AI Reception"],
+                [
+                  "Language",
+                  titleCase(
+                    String(
+                      selected.state.preferredLanguage ||
+                        patient.preferredLanguage ||
+                        "AUTO",
+                    ),
+                  ),
+                ],
+              ]}
+            />
+            <InfoCard
+              label="Current status"
+              rows={[
+                ["Stage", titleCase(patient.leadStage)],
+                ["Priority", titleCase(patient.leadPriority || "NORMAL")],
+                ["AI mode", patient.aiEnabled ? "Active" : "Paused"],
+                ["Last contact", dateTime(patient.lastContactAt)],
+                [
+                  "Callback",
+                  patient.callbackAt ? dateTime(patient.callbackAt) : "Not set",
+                ],
+              ]}
+            />
+            <InfoCard
+              label="Conversation intelligence"
+              rows={[
+                [
+                  "Readiness",
+                  `${String(selected.state.readinessScore || 0)} / 100`,
+                ],
+                [
+                  "Readiness reason",
+                  String(selected.state.readinessReason || "Not yet assessed"),
+                ],
+                [
+                  "Phase",
+                  titleCase(
+                    String(selected.state.conversationPhase || "DISCOVERY"),
+                  ),
+                ],
+                [
+                  "Main objection",
+                  titleCase(String(selected.state.primaryObjection || "None")),
+                ],
+                [
+                  "Last option",
+                  String(selected.state.lastOptionSelected || "None"),
+                ],
+                [
+                  "Next action",
+                  titleCase(String(selected.state.nextBestAction || "ANSWER")),
+                ],
+              ]}
+            />
+            <InfoCard
+              label="Reactivation"
+              rows={[
+                ["Score", `${String(patient.reactivationScore || 0)} / 100`],
+                [
+                  "Best action",
+                  titleCase(patient.reactivationAction || "WAIT"),
+                ],
+                ["Lost reason", titleCase(patient.lostReason || "None")],
+              ]}
+            />
+            {selected.appointment && (
+              <InfoCard
+                label="Appointment"
+                accent
+                rows={[
+                  ["Date & time", dateTime(selected.appointment.dateTime)],
+                  ["Status", titleCase(selected.appointment.status)],
+                  ["Treatment", titleCase(selected.appointment.treatmentSlug)],
+                ]}
+              />
+            )}
+          </div>
+          <section className="surface summary-card">
+            <div className="section-title">
+              <Sparkles size={17} />
+              <span>AI patient summary</span>
+            </div>
+            <p>
+              {patient.aiSummary ||
+                "A factual summary will appear after the first conversation."}
+            </p>
+          </section>
+          {(patient.contextNotes || patient.previousInteraction) && (
+            <section className="surface summary-card">
+              <div className="section-title">
+                <MessageCircle size={17} />
+                <span>Lead context</span>
+              </div>
+              {patient.contextNotes && <p>{patient.contextNotes}</p>}
+              {patient.previousInteraction && (
+                <p className="muted">
+                  Previous interaction: {patient.previousInteraction}
+                </p>
+              )}
+            </section>
+          )}
+          <section className="surface summary-card">
+            <div className="section-title">
+              <BarChart3 size={17} />
+              <span>Lead score · why</span>
+            </div>
+            {selected.scoreEvents?.[0] ? (
+              <div className="score-reasons">
+                {(
+                  JSON.parse(
+                    selected.scoreEvents[0].reasonCodesJson || "[]",
+                  ) as string[]
+                ).map((reason) => (
+                  <span key={reason}>{reason.replaceAll("_", " ")}</span>
+                ))}
+              </div>
+            ) : (
+              <p>Score reasons will appear after the next patient message.</p>
+            )}
+          </section>
+          <section className="surface timeline-card">
+            <div className="section-title">
+              <Activity size={17} />
+              <span>Patient timeline</span>
+            </div>
+            <div className="timeline">
+              {selected.events.map((event) => (
+                <div className="timeline-item" key={event.id}>
+                  <div className="timeline-time">
+                    {new Intl.DateTimeFormat("en-IN", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }).format(new Date(event.createdAt))}
+                  </div>
+                  <div className="timeline-marker" />
+                  <div>
+                    <strong>{event.title}</strong>
+                    {event.details && <p>{event.details}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </section>
+        <aside className="detail-aside">
+          <section className="surface ask-ai-card">
+            <div className="ask-ai-header">
+              <div className="ai-orb">
+                <WandSparkles size={19} />
+              </div>
+              <div>
+                <strong>Ask AI about this patient</strong>
+                <span>Answers from CRM + transcript only</span>
+              </div>
+            </div>
+            <div className="prompt-chips">
+              {[
+                "What does this patient want?",
+                "What should reception do next?",
+                "Why is this lead hot?",
+              ].map((item) => (
+                <button onClick={() => setQuestion(item)} key={item}>
+                  {item}
+                </button>
+              ))}
+            </div>
+            {answer && (
+              <div className="ai-answer">
+                <Sparkles size={15} />
+                <p>{answer}</p>
+              </div>
+            )}
+            <div className="ask-composer">
+              <input
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && ask()}
+                placeholder="Ask about this patient…"
+              />
+              <button onClick={ask} disabled={asking}>
+                {asking ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Send size={17} />
+                )}
+              </button>
+            </div>
+          </section>
+          <section className="surface">
+            <div className="section-title">
+              <Library size={17} />
+              <span>Content sent</span>
+            </div>
+            <div className="aside-list">
+              {selected.sentContent.length ? (
+                selected.sentContent.map((item) => (
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    key={item.id}
+                  >
+                    <Play size={15} />
+                    <div>
+                      <strong>{item.title}</strong>
+                      <span>{titleCase(item.type)}</span>
+                    </div>
+                    <ExternalLink size={14} />
+                  </a>
+                ))
+              ) : (
+                <div className="mini-empty">
+                  No educational content sent yet.
+                </div>
+              )}
+            </div>
+          </section>
+          <section className="surface">
+            <div className="section-title">
+              <PhoneCall size={17} />
+              <span>Human tasks</span>
+            </div>
+            <div className="aside-list">
+              {data.humanTasks.filter((item) => item.patientId === patient.id)
+                .length ? (
+                data.humanTasks
+                  .filter((item) => item.patientId === patient.id)
+                  .map((item) => (
+                    <Link href="/attention" key={item.id}>
+                      <UserRound size={15} />
+                      <div>
+                        <strong>{item.title}</strong>
+                        <span>
+                          {item.status} · {item.priority}
+                        </span>
+                      </div>
+                      <ArrowRight size={14} />
+                    </Link>
+                  ))
+              ) : (
+                <div className="mini-empty">No human tasks.</div>
+              )}
+            </div>
+          </section>
+          <section className="surface">
+            <div className="section-title">
+              <Send size={17} />
+              <span>Outreach history</span>
+            </div>
+            <div className="aside-list">
+              {selected.outreachHistory?.length ? (
+                selected.outreachHistory.map((item) => (
+                  <div className="state-row" key={String(item.id)}>
+                    <span>
+                      {String(item.campaignName || "Direct outreach")} ·{" "}
+                      {String(item.templateCategory || "Unknown")}
+                    </span>
+                    <strong>{String(item.status)}</strong>
+                  </div>
+                ))
+              ) : (
+                <div className="mini-empty">No outreach sent.</div>
+              )}
+            </div>
+          </section>
+          <section className="surface">
+            <div className="section-title">
+              <MessageCircle size={17} />
+              <span>Conversation</span>
+            </div>
+            <div className="transcript-preview">
+              {selected.messages.slice(-8).map((message) => (
+                <FeedbackMessage
+                  key={message.id}
+                  message={message}
+                  patientId={patient.id}
+                />
+              ))}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </AppShell>
+  );
+}
+
+function FeedbackMessage({
+  message,
+  patientId,
+}: {
+  message: { id: string; senderType: string; content: string };
+  patientId: string;
+}) {
+  const [saved, setSaved] = useState(false);
+  async function rate(rating: "GOOD" | "NEEDS_IMPROVEMENT") {
+    const note =
+      rating === "NEEDS_IMPROVEMENT"
+        ? window.prompt(
+            "Optional reason: Wrong price, Wrong treatment, Too pushy, Not pushy enough, Missed context, Bad language, Should have escalated, Other",
+          )
+        : null;
+    const choices = [
+      "Wrong price",
+      "Wrong treatment",
+      "Too pushy",
+      "Not pushy enough",
+      "Missed context",
+      "Bad language",
+      "Should have escalated",
+      "Other",
+    ];
+    const response = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messageId: message.id,
+        patientId,
+        rating,
+        reason: note && choices.includes(note) ? note : note ? "Other" : null,
+        notes: note && !choices.includes(note) ? note : null,
+      }),
+    });
+    if (response.ok) {
+      setSaved(true);
+      toast.success("Feedback saved for review");
+    } else toast.error("Feedback could not be saved");
+  }
+  return (
+    <div className={message.senderType === "patient" ? "patient" : "clinic"}>
+      <span>{titleCase(message.senderType)}</span>
+      <p>{message.content}</p>
+      {message.senderType === "ai" && !saved && (
+        <div className="feedback-actions">
+          <button onClick={() => rate("GOOD")}>👍 Good</button>
+          <button onClick={() => rate("NEEDS_IMPROVEMENT")}>
+            👎 Needs improvement
+          </button>
+        </div>
+      )}
+      {saved && <small>Feedback saved</small>}
+    </div>
+  );
 }
 
 export function AppointmentsPage() {
-  const { data, refresh } = useRadianceState(); const [patientId, setPatientId] = useState(""); const [date, setDate] = useState(format(addDays(new Date(), 1), "yyyy-MM-dd")); const [time, setTime] = useState("17:30");
+  const { data, refresh } = useRadianceState();
+  const [patientId, setPatientId] = useState("");
+  const [date, setDate] = useState(
+    format(addDays(new Date(), 1), "yyyy-MM-dd"),
+  );
+  const [time, setTime] = useState("17:30");
   const effectivePatientId = patientId || data?.patients[0]?.id || "";
-  async function book() { const response = await fetch("/api/appointments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "book", patientId: effectivePatientId, date, time }) }); const result = await response.json(); if (response.ok) { toast.success("Consultation booked and reminders scheduled"); refresh(); } else toast.error(result.error); }
-  async function cancel(appointmentId: string, pid: string) { if (!window.confirm("Cancel this appointment and its pending reminders?")) return; const response = await fetch("/api/appointments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", patientId: pid, appointmentId }) }); if (response.ok) { toast.success("Appointment cancelled"); refresh(); } }
-  const slots = ["10:00","10:30","11:00","11:30","12:00","16:00","16:30","17:00","17:30","18:00","18:30"];
-  return <AppShell eyebrow="Scheduling" title="Appointments" action={<div className="date-chip"><CalendarDays size={16}/>{format(new Date(), "EEEE, d MMMM")}</div>}>{!data ? <PageLoader/> : <div className="page-content appointment-layout"><section className="surface appointment-day"><div className="section-head"><div><h2>Consultation calendar</h2><p>Confirmed and historical appointments from the clinic database.</p></div><StatusBadge value={`${data.appointments.filter((item) => item.status === "confirmed").length} confirmed`}/></div><div className="appointment-list">{data.appointments.map((appointment) => <div className={`appointment-row status-${appointment.status}`} key={appointment.id}><div className="appointment-time"><strong>{new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit" }).format(new Date(appointment.dateTime))}</strong><span>{new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" }).format(new Date(appointment.dateTime))}</span></div><div className="appointment-line"/><div className="appointment-person"><div className="avatar avatar-sm temp-hot">{appointment.name?.split(" ").map((x) => x[0]).join("").slice(0,2)}</div><div><strong>{appointment.name}</strong><span>{titleCase(appointment.treatmentSlug)} · {appointment.phone}</span></div></div><StatusBadge value={appointment.status}/>{appointment.status === "confirmed" && <button className="icon-button danger" onClick={() => cancel(appointment.id, appointment.patientId)} title="Cancel"><XCircle size={18}/></button>}</div>)}{!data.appointments.length && <div className="empty-list"><CalendarDays/><strong>No appointments yet</strong></div>}</div></section>
-    <aside className="surface manual-book"><div className="section-title"><CalendarCheck2 size={18}/><span>Book consultation</span></div><p>Reception can use the same guarded booking engine as the AI.</p><label>Patient<select value={effectivePatientId} onChange={(event) => setPatientId(event.target.value)} disabled={!data.patients.length}>{data.patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {titleCase(patient.treatmentSlug)}</option>)}</select></label><label>Date<input type="date" value={date} min={format(new Date(), "yyyy-MM-dd")} onChange={(event) => setDate(event.target.value)}/></label><label>Available slot<div className="slot-grid">{slots.map((slot) => <button className={time === slot ? "selected" : ""} onClick={() => setTime(slot)} key={slot}>{slot}</button>)}</div></label><button className="primary-button full" onClick={book} disabled={!effectivePatientId}><CalendarCheck2 size={16}/>Confirm appointment</button><div className="safe-note"><CheckCircle2 size={15}/><span>Double-booking protection is active.</span></div></aside>
-  </div>}</AppShell>;
+  async function book() {
+    const response = await fetch("/api/appointments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "book",
+        patientId: effectivePatientId,
+        date,
+        time,
+      }),
+    });
+    const result = await response.json();
+    if (response.ok) {
+      toast.success("Consultation booked and reminders scheduled");
+      refresh();
+    } else toast.error(result.error);
+  }
+  async function cancel(appointmentId: string, pid: string) {
+    if (!window.confirm("Cancel this appointment and its pending reminders?"))
+      return;
+    const response = await fetch("/api/appointments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel", patientId: pid, appointmentId }),
+    });
+    if (response.ok) {
+      toast.success("Appointment cancelled");
+      refresh();
+    }
+  }
+  async function mark(
+    appointmentId: string,
+    pid: string,
+    action: "complete" | "no_show",
+  ) {
+    const response = await fetch("/api/appointments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, patientId: pid, appointmentId }),
+    });
+    if (response.ok) {
+      toast.success(
+        action === "complete"
+          ? "Consultation completed"
+          : "No-show recovery scheduled",
+      );
+      refresh();
+    } else toast.error("Appointment could not be updated");
+  }
+  const slots = [
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "15:30",
+    "16:00",
+    "16:30",
+    "17:00",
+    "17:30",
+    "18:00",
+    "18:30",
+    "19:00",
+  ];
+  return (
+    <AppShell
+      eyebrow="Scheduling"
+      title="Appointments"
+      action={
+        <div className="date-chip">
+          <CalendarDays size={16} />
+          {format(new Date(), "EEEE, d MMMM")}
+        </div>
+      }
+    >
+      {!data ? (
+        <PageLoader />
+      ) : (
+        <div className="page-content appointment-layout">
+          <section className="surface appointment-day">
+            <div className="section-head">
+              <div>
+                <h2>Consultation calendar</h2>
+                <p>
+                  Confirmed and historical appointments from the clinic
+                  database.
+                </p>
+              </div>
+              <StatusBadge
+                value={`${data.appointments.filter((item) => item.status === "confirmed").length} confirmed`}
+              />
+            </div>
+            <div className="appointment-list">
+              {data.appointments.map((appointment) => (
+                <div
+                  className={`appointment-row status-${appointment.status}`}
+                  key={appointment.id}
+                >
+                  <div className="appointment-time">
+                    <strong>
+                      {new Intl.DateTimeFormat("en-IN", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }).format(new Date(appointment.dateTime))}
+                    </strong>
+                    <span>
+                      {new Intl.DateTimeFormat("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                      }).format(new Date(appointment.dateTime))}
+                    </span>
+                  </div>
+                  <div className="appointment-line" />
+                  <div className="appointment-person">
+                    <div className="avatar avatar-sm temp-hot">
+                      {appointment.name
+                        ?.split(" ")
+                        .map((x) => x[0])
+                        .join("")
+                        .slice(0, 2)}
+                    </div>
+                    <div>
+                      <strong>{appointment.name}</strong>
+                      <span>
+                        {titleCase(appointment.treatmentSlug)} ·{" "}
+                        {appointment.phone}
+                      </span>
+                    </div>
+                  </div>
+                  <StatusBadge value={appointment.status} />
+                  {appointment.status === "confirmed" && (
+                    <div className="appointment-actions">
+                      <button
+                        className="icon-button"
+                        onClick={() =>
+                          mark(
+                            appointment.id,
+                            appointment.patientId,
+                            "complete",
+                          )
+                        }
+                        title="Completed"
+                      >
+                        <CheckCircle2 size={17} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        onClick={() =>
+                          mark(appointment.id, appointment.patientId, "no_show")
+                        }
+                        title="No show"
+                      >
+                        <Clock3 size={17} />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        onClick={() =>
+                          cancel(appointment.id, appointment.patientId)
+                        }
+                        title="Cancel"
+                      >
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!data.appointments.length && (
+                <div className="empty-list">
+                  <CalendarDays />
+                  <strong>No appointments yet</strong>
+                </div>
+              )}
+            </div>
+          </section>
+          <aside className="surface manual-book">
+            <div className="section-title">
+              <CalendarCheck2 size={18} />
+              <span>Book consultation</span>
+            </div>
+            <p>Reception can use the same guarded booking engine as the AI.</p>
+            <label>
+              Patient
+              <select
+                value={effectivePatientId}
+                onChange={(event) => setPatientId(event.target.value)}
+                disabled={!data.patients.length}
+              >
+                {data.patients.map((patient) => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.name} · {titleCase(patient.treatmentSlug)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Date
+              <input
+                type="date"
+                value={date}
+                min={format(new Date(), "yyyy-MM-dd")}
+                onChange={(event) => setDate(event.target.value)}
+              />
+            </label>
+            <label>
+              Available slot
+              <div className="slot-grid">
+                {slots.map((slot) => (
+                  <button
+                    className={time === slot ? "selected" : ""}
+                    onClick={() => setTime(slot)}
+                    key={slot}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <button
+              className="primary-button full"
+              onClick={book}
+              disabled={!effectivePatientId}
+            >
+              <CalendarCheck2 size={16} />
+              Confirm appointment
+            </button>
+            <div className="safe-note">
+              <CheckCircle2 size={15} />
+              <span>Double-booking protection is active.</span>
+            </div>
+          </aside>
+        </div>
+      )}
+    </AppShell>
+  );
 }
 
 export function AutomationsPage() {
   const { data, refresh } = useRadianceState();
-  async function toggle(key: string, current: string) { await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: { [key]: current === "true" ? "false" : "true" } }) }); toast.success("Workflow setting saved"); refresh(); }
-  if (!data) return <AppShell title="Automations"><PageLoader/></AppShell>;
-  const configs = [["appointmentConfirmation","Appointment Confirmation","Immediately after booking","Every booking receives a clear confirmation."],["appointmentReminder1","24 Hour Reminder","24 hours before","First appointment reminder with reschedule help."],["appointmentReminder2","3 Hour Reminder","3 hours before","Final light-touch reminder before consultation."],["noShowRecovery","No-show Recovery","After confirmed no-show","A considerate invitation to choose another time."],["dormantLeadFollowup","Dormant Lead Follow-up","Approved templates only","Prepared for opted-in, manually approved follow-up."]] as const;
-  const complete = data.jobs.filter((job) => job.status === "completed").length; const pending = data.jobs.filter((job) => job.status === "pending").length; const failed = data.jobs.filter((job) => job.status === "failed").length;
-  return <AppShell eyebrow="Follow-up engine" title="Automations" action={<div className="status-connected"><span className="pulse-dot"/>Cron ready</div>}><div className="page-content"><div className="metric-row compact"><Metric icon={<Activity/>} label="Runs today" value={complete}/><Metric icon={<CheckCircle2/>} label="Successful" value={complete} tone="green"/><Metric icon={<Clock3/>} label="Pending" value={pending} tone="warm"/><Metric icon={<CircleAlert/>} label="Failed" value={failed} tone={failed ? "hot" : "neutral"}/></div><div className="automation-grid">{configs.map(([key,title,timing,description], index) => { const active = data.settings[key] !== "false"; return <section className="surface automation-card" key={key}><div className={`automation-icon a${index}`}><AlarmClock size={20}/></div><button onClick={() => toggle(key, String(active))} className={`toggle-button ${active ? "active" : ""}`} aria-label={`Toggle ${title}`}>{active ? <ToggleRight size={28}/> : <ToggleLeft size={28}/>}</button><span className="workflow-state">{active ? "ACTIVE" : "PAUSED"}</span><h3>{title}</h3><strong>{timing}</strong><p>{description}</p><div className="automation-stats"><span><Check size={13}/>Reliable execution</span><span><Activity size={13}/>Database-backed</span></div></section>; })}</div></div></AppShell>;
+  async function toggle(key: string, current: string) {
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        values: { [key]: current === "true" ? "false" : "true" },
+      }),
+    });
+    toast.success("Workflow setting saved");
+    refresh();
+  }
+  if (!data)
+    return (
+      <AppShell title="Automations">
+        <PageLoader />
+      </AppShell>
+    );
+  const configs = [
+    [
+      "appointmentConfirmation",
+      "Appointment Confirmation",
+      "Immediately after booking",
+      "Every booking receives a clear confirmation.",
+    ],
+    [
+      "appointmentReminder1",
+      "24 Hour Reminder",
+      "24 hours before",
+      "First appointment reminder with reschedule help.",
+    ],
+    [
+      "appointmentReminder2",
+      "3 Hour Reminder",
+      "3 hours before",
+      "Final light-touch reminder before consultation.",
+    ],
+    [
+      "noShowRecovery",
+      "No-show Recovery",
+      "After confirmed no-show",
+      "A considerate invitation to choose another time.",
+    ],
+    [
+      "dormantLeadFollowup",
+      "Dormant Lead Follow-up",
+      "Approved templates only",
+      "Prepared for opted-in, manually approved follow-up.",
+    ],
+  ] as const;
+  const complete = data.jobs.filter((job) => job.status === "completed").length;
+  const pending = data.jobs.filter((job) => job.status === "pending").length;
+  const failed = data.jobs.filter((job) => job.status === "failed").length;
+  return (
+    <AppShell
+      eyebrow="Follow-up engine"
+      title="Automations"
+      action={
+        <div className="status-connected">
+          <span className="pulse-dot" />
+          Cron ready
+        </div>
+      }
+    >
+      <div className="page-content">
+        <div className="metric-row compact">
+          <Metric icon={<Activity />} label="Runs today" value={complete} />
+          <Metric
+            icon={<CheckCircle2 />}
+            label="Successful"
+            value={complete}
+            tone="green"
+          />
+          <Metric
+            icon={<Clock3 />}
+            label="Pending"
+            value={pending}
+            tone="warm"
+          />
+          <Metric
+            icon={<CircleAlert />}
+            label="Failed"
+            value={failed}
+            tone={failed ? "hot" : "neutral"}
+          />
+        </div>
+        <div className="automation-grid">
+          {configs.map(([key, title, timing, description], index) => {
+            const active = data.settings[key] !== "false";
+            return (
+              <section className="surface automation-card" key={key}>
+                <div className={`automation-icon a${index}`}>
+                  <AlarmClock size={20} />
+                </div>
+                <button
+                  onClick={() => toggle(key, String(active))}
+                  className={`toggle-button ${active ? "active" : ""}`}
+                  aria-label={`Toggle ${title}`}
+                >
+                  {active ? (
+                    <ToggleRight size={28} />
+                  ) : (
+                    <ToggleLeft size={28} />
+                  )}
+                </button>
+                <span className="workflow-state">
+                  {active ? "ACTIVE" : "PAUSED"}
+                </span>
+                <h3>{title}</h3>
+                <strong>{timing}</strong>
+                <p>{description}</p>
+                <div className="automation-stats">
+                  <span>
+                    <Check size={13} />
+                    Reliable execution
+                  </span>
+                  <span>
+                    <Activity size={13} />
+                    Database-backed
+                  </span>
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </AppShell>
+  );
 }
 
 export function ContentPage() {
   const { data, refresh } = useRadianceState();
   const [type, setType] = useState("all");
   const [editing, setEditing] = useState<Partial<ContentItem> | null>(null);
-  const items = (data?.contents || []).filter((item) => type === "all" || item.type === type);
+  const items = (data?.contents || []).filter(
+    (item) => type === "all" || item.type === type,
+  );
   async function save() {
     if (!editing) return;
-    const tags = typeof editing.tagsJson === "string" ? editing.tagsJson.split(",").map((tag) => tag.trim()).filter(Boolean) : editing.tags || [];
-    const response = await fetch("/api/content", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...editing, tags, priority: Number(editing.priority || 5), active: Boolean(editing.active), approvedForProduction: Boolean(editing.approvedForProduction) }) });
+    const tags =
+      typeof editing.tagsJson === "string"
+        ? editing.tagsJson
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        : editing.tags || [];
+    const response = await fetch("/api/content", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...editing,
+        tags,
+        priority: Number(editing.priority || 5),
+        active: Boolean(editing.active),
+        approvedForProduction:
+          editing.approvalStatus === "APPROVED" &&
+          Boolean(editing.approvedForProduction),
+      }),
+    });
     const result = await response.json();
-    if (response.ok) { toast.success(editing.id ? "Content updated" : "Content added"); setEditing(null); refresh(); } else toast.error(result.error);
+    if (response.ok) {
+      toast.success(editing.id ? "Content updated" : "Content added");
+      setEditing(null);
+      refresh();
+    } else toast.error(result.error);
   }
-  async function archive(id: string) { await fetch(`/api/content?id=${id}`, { method: "DELETE" }); toast.success("Content archived"); refresh(); }
-  const iconFor = (value: string) => value === "youtube" ? <Play/> : value === "website" ? <Globe2/> : value === "before_after" ? <ImageIcon/> : <FileQuestion/>;
-  return <AppShell eyebrow="AI knowledge tools" title="Content library" action={<button className="primary-button" onClick={() => setEditing({ ...defaultContent })}><Plus size={16}/>Add content</button>}>{!data ? <PageLoader/> : <div className="page-content">
-    <div className="content-notice"><Sparkles size={17}/><div><strong>Radiance content library</strong><span>Only clinic-approved resources with verified production URLs may be sent to patients.</span></div></div>
-    <div className="content-tabs">{[["all","All content"],["youtube","YouTube videos"],["website","Website pages"],["before_after","Before / after"],["faq","FAQs"]].map(([key,label]) => <button className={type === key ? "active" : ""} onClick={() => setType(key)} key={key}>{label}<span>{key === "all" ? data.contents.length : data.contents.filter((item) => item.type === key).length}</span></button>)}</div>
-    <div className="content-grid">{items.map((item) => <section className={`surface library-card ${!item.active ? "inactive" : ""}`} key={item.id}><div className={`library-thumb type-${item.type}`}>{iconFor(item.type)}<span>{item.approvedForProduction ? "APPROVED" : "DRAFT"}</span></div><div className="library-card-body"><div className="library-meta"><StatusBadge value={item.type}/><span>{titleCase(item.treatmentSlug || "All treatments")}</span></div><h3>{item.title}</h3><p>{item.description}</p><div className="send-rule"><WandSparkles size={14}/><span>{item.whenToSend}</span></div><div className="card-actions"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Preview</a><button onClick={() => setEditing({ ...item, tagsJson: JSON.parse(item.tagsJson || "[]").join(", ") })}><Pencil size={15}/>Edit</button><button className="danger" onClick={() => archive(item.id)}><Trash2 size={15}/>Archive</button></div></div></section>)}</div>
-  </div>}{editing && <div className="modal-backdrop" onMouseDown={() => setEditing(null)}><div className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div><span className="eyebrow">CONTENT INTELLIGENCE</span><h2>{editing.id ? "Edit resource" : "Add resource"}</h2></div><button className="icon-button" onClick={() => setEditing(null)}><XCircle/></button></header><div className="form-grid"><label>Type<select value={editing.type} onChange={(event) => setEditing({ ...editing, type: event.target.value as ContentItem["type"] })}><option value="youtube">YouTube</option><option value="website">Website</option><option value="before_after">Before / after</option><option value="faq">FAQ</option></select></label><label>Treatment<select value={editing.treatmentSlug || ""} onChange={(event) => setEditing({ ...editing, treatmentSlug: event.target.value || null })}><option value="">All treatments</option>{["hair_loss","hair_transplant","prp","gfc","beard_transplant","acne","acne_scars","pigmentation","melasma","laser","anti_ageing"].map((value) => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label><label className="span-2">Title<input value={editing.title || ""} onChange={(event) => setEditing({ ...editing, title: event.target.value })}/></label><label className="span-2">Description<textarea value={editing.description || ""} onChange={(event) => setEditing({ ...editing, description: event.target.value })}/></label><label className="span-2">URL<input value={editing.url || ""} onChange={(event) => setEditing({ ...editing, url: event.target.value })}/></label><label className="span-2">When to send<input value={editing.whenToSend || ""} onChange={(event) => setEditing({ ...editing, whenToSend: event.target.value })}/></label><label>Tags<input value={editing.tagsJson || ""} onChange={(event) => setEditing({ ...editing, tagsJson: event.target.value })} placeholder="hairline, thinning"/></label><label>Priority<input type="number" min="1" max="20" value={editing.priority || 5} onChange={(event) => setEditing({ ...editing, priority: Number(event.target.value) })}/></label><label className="span-2"><input type="checkbox" checked={Boolean(editing.approvedForProduction)} onChange={(event) => setEditing({ ...editing, approvedForProduction: event.target.checked })}/>Approved for production patient messages</label></div><footer><button className="secondary-button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" onClick={save}><Check size={16}/>Save resource</button></footer></div></div>}</AppShell>;
+  async function archive(id: string) {
+    await fetch(`/api/content?id=${id}`, { method: "DELETE" });
+    toast.success("Content archived");
+    refresh();
+  }
+  const iconFor = (value: string) =>
+    value === "youtube" ? (
+      <Play />
+    ) : value === "website" ? (
+      <Globe2 />
+    ) : value === "before_after" ? (
+      <ImageIcon />
+    ) : (
+      <FileQuestion />
+    );
+  return (
+    <AppShell
+      eyebrow="AI knowledge tools"
+      title="Content library"
+      action={
+        <button
+          className="primary-button"
+          onClick={() => setEditing({ ...defaultContent })}
+        >
+          <Plus size={16} />
+          Add content
+        </button>
+      }
+    >
+      {!data ? (
+        <PageLoader />
+      ) : (
+        <div className="page-content">
+          <div className="content-notice">
+            <Sparkles size={17} />
+            <div>
+              <strong>Radiance content library</strong>
+              <span>
+                Only clinic-approved resources with verified production URLs may
+                be sent to patients.
+              </span>
+            </div>
+          </div>
+          <div className="content-tabs">
+            {[
+              ["all", "All content"],
+              ["youtube", "YouTube videos"],
+              ["website", "Website pages"],
+              ["before_after", "Before / after"],
+              ["faq", "FAQs"],
+            ].map(([key, label]) => (
+              <button
+                className={type === key ? "active" : ""}
+                onClick={() => setType(key)}
+                key={key}
+              >
+                {label}
+                <span>
+                  {key === "all"
+                    ? data.contents.length
+                    : data.contents.filter((item) => item.type === key).length}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="content-grid">
+            {items.map((item) => (
+              <section
+                className={`surface library-card ${!item.active ? "inactive" : ""}`}
+                key={item.id}
+              >
+                <div className={`library-thumb type-${item.type}`}>
+                  {iconFor(item.type)}
+                  <span>
+                    {item.approvalStatus ||
+                      (item.approvedForProduction ? "APPROVED" : "DRAFT")}
+                  </span>
+                </div>
+                <div className="library-card-body">
+                  <div className="library-meta">
+                    <StatusBadge value={item.type} />
+                    <span>
+                      {titleCase(item.treatmentSlug || "All treatments")}
+                    </span>
+                  </div>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
+                  <div className="send-rule">
+                    <WandSparkles size={14} />
+                    <span>{item.whenToSend}</span>
+                  </div>
+                  <div className="card-actions">
+                    <a href={item.url} target="_blank" rel="noreferrer">
+                      <ExternalLink size={15} />
+                      Preview
+                    </a>
+                    <button
+                      onClick={() =>
+                        setEditing({
+                          ...item,
+                          tagsJson: JSON.parse(item.tagsJson || "[]").join(
+                            ", ",
+                          ),
+                        })
+                      }
+                    >
+                      <Pencil size={15} />
+                      Edit
+                    </button>
+                    <button className="danger" onClick={() => archive(item.id)}>
+                      <Trash2 size={15} />
+                      Archive
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      )}
+      {editing && (
+        <div className="modal-backdrop" onMouseDown={() => setEditing(null)}>
+          <div
+            className="modal"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span className="eyebrow">CONTENT INTELLIGENCE</span>
+                <h2>{editing.id ? "Edit resource" : "Add resource"}</h2>
+              </div>
+              <button className="icon-button" onClick={() => setEditing(null)}>
+                <XCircle />
+              </button>
+            </header>
+            <div className="form-grid">
+              <label>
+                Type
+                <select
+                  value={editing.type}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      type: event.target.value as ContentItem["type"],
+                    })
+                  }
+                >
+                  <option value="youtube">YouTube</option>
+                  <option value="website">Website</option>
+                  <option value="before_after">Before / after</option>
+                  <option value="faq">FAQ</option>
+                </select>
+              </label>
+              <label>
+                Treatment
+                <select
+                  value={editing.treatmentSlug || ""}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      treatmentSlug: event.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">All treatments</option>
+                  {[
+                    "hair_loss",
+                    "hair_transplant",
+                    "prp",
+                    "gfc",
+                    "beard_transplant",
+                    "acne",
+                    "acne_scars",
+                    "pigmentation",
+                    "melasma",
+                    "laser",
+                    "anti_ageing",
+                  ].map((value) => (
+                    <option key={value} value={value}>
+                      {titleCase(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="span-2">
+                Title
+                <input
+                  value={editing.title || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, title: event.target.value })
+                  }
+                />
+              </label>
+              <label className="span-2">
+                Description
+                <textarea
+                  value={editing.description || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, description: event.target.value })
+                  }
+                />
+              </label>
+              <label className="span-2">
+                URL
+                <input
+                  value={editing.url || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, url: event.target.value })
+                  }
+                />
+              </label>
+              <label className="span-2">
+                When to send
+                <input
+                  value={editing.whenToSend || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, whenToSend: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Tags
+                <input
+                  value={editing.tagsJson || ""}
+                  onChange={(event) =>
+                    setEditing({ ...editing, tagsJson: event.target.value })
+                  }
+                  placeholder="hairline, thinning"
+                />
+              </label>
+              <label>
+                Priority
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={editing.priority || 5}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      priority: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Approval status
+                <select
+                  value={editing.approvalStatus || "DRAFT"}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      approvalStatus: event.target
+                        .value as ContentItem["approvalStatus"],
+                    })
+                  }
+                >
+                  <option>DRAFT</option>
+                  <option>NEEDS_REVIEW</option>
+                  <option>APPROVED</option>
+                  <option>ARCHIVED</option>
+                </select>
+              </label>
+              <label className="span-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(editing.approvedForProduction)}
+                  onChange={(event) =>
+                    setEditing({
+                      ...editing,
+                      approvedForProduction: event.target.checked,
+                    })
+                  }
+                />
+                Approved for production patient messages
+              </label>
+            </div>
+            <footer>
+              <button
+                className="secondary-button"
+                onClick={() => setEditing(null)}
+              >
+                Cancel
+              </button>
+              <button className="primary-button" onClick={save}>
+                <Check size={16} />
+                Save resource
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  );
 }
 
 export function AnalyticsPage() {
-  const { data } = useRadianceState(); if (!data) return <AppShell title="Analytics"><PageLoader/></AppShell>;
-  const sourceData = data.analytics.sourceCounts.map((item) => ({ name: titleCase(item.source), value: item.count })); const sourceColors = ["#16a977","#7667e8","#e39b31","#3a87d8","#8d9ba7"];
-  const funnel = [["New enquiries",data.analytics.total],["Meaningfully engaged",data.analytics.meaningfullyEngaged],["Qualified",data.analytics.qualified],["High intent",data.analytics.highIntent],["Consultation discussed",data.analytics.consultationDiscussed],["Booked",data.analytics.booked],["Completed",data.analytics.completed],["Human call",data.analytics.humanCall]].map(([stage,value]) => ({ stage, value: Number(value || 0) }));
-  return <AppShell eyebrow="Database-derived performance" title="Analytics" action={<div className="date-chip"><BarChart3 size={16}/>Clinic data</div>}><div className="page-content"><div className="metric-row"><Metric icon={<UserPlus/>} label="New enquiries" value={data.analytics.total}/><Metric icon={<Flame/>} label="High intent" value={Number(data.analytics.highIntent || 0)} tone="hot"/><Metric icon={<CalendarCheck2/>} label="Booked" value={data.analytics.booked} tone="green"/><Metric icon={<Bot/>} label="AI conversations" value={Number(data.analytics.aiConversations || 0)} tone="purple"/><Metric icon={<UserRound/>} label="Human calls" value={Number(data.analytics.humanCall || 0)}/><Metric icon={<RefreshCcw/>} label="Outreach sent / replies" value={`${Number(data.analytics.outreachSent || 0)} / ${Number(data.analytics.outreachReplies || 0)}`} tone="warm"/></div><section className="surface chart-card"><div className="section-head"><div><h2>AI cost today · estimated USD</h2><p>Paid-tier token estimates, not invoices. No WhatsApp cost is invented.</p></div></div><div className="metric-row compact">{["deepseek-flash","gemini-3.1-flash-lite","gemini-3.8-flash"].map((model) => <div className="metric-card" key={model}><div><span>{model}</span><strong>${Number(data.providerMetrics.find((item) => item.model === model)?.estimatedCost || 0).toFixed(4)}</strong></div></div>)}<div className="metric-card"><div><span>Auto outreach used</span><strong>{Number(data.analytics.marketingUsed || 0)} / {Number(data.settings.autoMarketingDailyLimit || 10)}</strong></div></div></div></section><div className="analytics-grid"><section className="surface chart-card wide"><div className="section-head"><div><h2>Patient conversion funnel</h2><p>Current patient-state counts; stages are not guaranteed to be strictly sequential.</p></div></div><ResponsiveContainer width="100%" height={350}><BarChart data={funnel} layout="vertical" margin={{ left: 20, right: 35 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9eeeb"/><XAxis type="number" hide/><YAxis type="category" dataKey="stage" axisLine={false} tickLine={false} width={160} tick={{ fill: "#50615a", fontSize: 12 }}/><Tooltip cursor={{ fill: "#f5f8f6" }}/><Bar dataKey="value" fill="#16a977" radius={[0,8,8,0]} barSize={21}/></BarChart></ResponsiveContainer></section><section className="surface chart-card"><div className="section-head"><div><h2>Lead sources</h2><p>Attribution stored on each patient.</p></div></div><ResponsiveContainer width="100%" height={230}><PieChart><Pie data={sourceData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} paddingAngle={3}>{sourceData.map((_, index) => <Cell key={index} fill={sourceColors[index % sourceColors.length]}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer><div className="legend-list">{sourceData.map((item,index) => <div key={item.name}><span style={{ background: sourceColors[index % sourceColors.length] }}/><strong>{item.name}</strong><em>{item.value}</em></div>)}</div></section></div></div></AppShell>;
+  const { data } = useRadianceState();
+  if (!data)
+    return (
+      <AppShell title="Analytics">
+        <PageLoader />
+      </AppShell>
+    );
+  const sourceData = data.analytics.sourceCounts.map((item) => ({
+    name: titleCase(item.source),
+    value: item.count,
+  }));
+  const sourceColors = ["#16a977", "#7667e8", "#e39b31", "#3a87d8", "#8d9ba7"];
+  const funnel = [
+    ["New enquiries", data.analytics.total],
+    ["Meaningfully engaged", data.analytics.meaningfullyEngaged],
+    ["Qualified", data.analytics.qualified],
+    ["High intent", data.analytics.highIntent],
+    ["Consultation discussed", data.analytics.consultationDiscussed],
+    ["Booked", data.analytics.booked],
+    ["Completed", data.analytics.completed],
+    ["Human call", data.analytics.humanCall],
+  ].map(([stage, value]) => ({ stage, value: Number(value || 0) }));
+  return (
+    <AppShell
+      eyebrow="Database-derived performance"
+      title="Analytics"
+      action={
+        <div className="date-chip">
+          <BarChart3 size={16} />
+          Clinic data
+        </div>
+      }
+    >
+      <div className="page-content">
+        <div className="metric-row">
+          <Metric
+            icon={<UserPlus />}
+            label="New enquiries"
+            value={data.analytics.total}
+          />
+          <Metric
+            icon={<Flame />}
+            label="High intent"
+            value={Number(data.analytics.highIntent || 0)}
+            tone="hot"
+          />
+          <Metric
+            icon={<CalendarCheck2 />}
+            label="Booked"
+            value={data.analytics.booked}
+            tone="green"
+          />
+          <Metric
+            icon={<Bot />}
+            label="AI conversations"
+            value={Number(data.analytics.aiConversations || 0)}
+            tone="purple"
+          />
+          <Metric
+            icon={<UserRound />}
+            label="Human calls"
+            value={Number(data.analytics.humanCall || 0)}
+          />
+          <Metric
+            icon={<RefreshCcw />}
+            label="Outreach sent / replies"
+            value={`${Number(data.analytics.outreachSent || 0)} / ${Number(data.analytics.outreachReplies || 0)}`}
+            tone="warm"
+          />
+        </div>
+        <section className="surface chart-card">
+          <div className="section-head">
+            <div>
+              <h2>AI cost today · estimated USD</h2>
+              <p>
+                Paid-tier token estimates, not invoices. No WhatsApp cost is
+                invented.
+              </p>
+            </div>
+          </div>
+          <div className="metric-row compact">
+            {[
+              "deepseek-flash",
+              "gemini-3.1-flash-lite",
+              "gemini-3.8-flash",
+            ].map((model) => (
+              <div className="metric-card" key={model}>
+                <div>
+                  <span>{model}</span>
+                  <strong>
+                    $
+                    {Number(
+                      data.providerMetrics.find((item) => item.model === model)
+                        ?.estimatedCost || 0,
+                    ).toFixed(4)}
+                  </strong>
+                </div>
+              </div>
+            ))}
+            <div className="metric-card">
+              <div>
+                <span>Auto outreach used</span>
+                <strong>
+                  {Number(data.analytics.marketingUsed || 0)} /{" "}
+                  {Number(data.settings.autoMarketingDailyLimit || 10)}
+                </strong>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div className="analytics-grid">
+          <section className="surface chart-card wide">
+            <div className="section-head">
+              <div>
+                <h2>Patient conversion funnel</h2>
+                <p>
+                  Current patient-state counts; stages are not guaranteed to be
+                  strictly sequential.
+                </p>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart
+                data={funnel}
+                layout="vertical"
+                margin={{ left: 20, right: 35 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  horizontal={false}
+                  stroke="#e9eeeb"
+                />
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="stage"
+                  axisLine={false}
+                  tickLine={false}
+                  width={160}
+                  tick={{ fill: "#50615a", fontSize: 12 }}
+                />
+                <Tooltip cursor={{ fill: "#f5f8f6" }} />
+                <Bar
+                  dataKey="value"
+                  fill="#16a977"
+                  radius={[0, 8, 8, 0]}
+                  barSize={21}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </section>
+          <section className="surface chart-card">
+            <div className="section-head">
+              <div>
+                <h2>Lead sources</h2>
+                <p>Attribution stored on each patient.</p>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={230}>
+              <PieChart>
+                <Pie
+                  data={sourceData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={60}
+                  outerRadius={90}
+                  paddingAngle={3}
+                >
+                  {sourceData.map((_, index) => (
+                    <Cell
+                      key={index}
+                      fill={sourceColors[index % sourceColors.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="legend-list">
+              {sourceData.map((item, index) => (
+                <div key={item.name}>
+                  <span
+                    style={{
+                      background: sourceColors[index % sourceColors.length],
+                    }}
+                  />
+                  <strong>{item.name}</strong>
+                  <em>{item.value}</em>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+        <section className="surface table-surface">
+          <div className="section-head padded">
+            <div>
+              <h2>Reactivation performance by variant</h2>
+              <p>
+                Sample size is always shown; appointments are
+                database-attributed after the send and are not presented as
+                proven causation.
+              </p>
+            </div>
+          </div>
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Variant</th>
+                  <th>Selected</th>
+                  <th>Sent</th>
+                  <th>Replies</th>
+                  <th>Appointments</th>
+                  <th>Lost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.outreachPerformance.map((item) => (
+                  <tr key={String(item.variant)}>
+                    <td>
+                      <strong>
+                        {String(item.displayName || item.variant)}
+                      </strong>
+                    </td>
+                    <td>{Number(item.selected || 0)}</td>
+                    <td>{Number(item.sent || 0)}</td>
+                    <td>{Number(item.replies || 0)}</td>
+                    <td>{Number(item.appointments || 0)}</td>
+                    <td>{Number(item.lost || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </AppShell>
+  );
 }
 
 export function SettingsPage() {
-  const { data } = useRadianceState(); const [tests, setTests] = useState<Record<string,{ connected?: boolean; message?: string; model?: string; latency?: number }>>({}); const [testing, setTesting] = useState<string | null>(null);
-  async function testProvider(provider: string) { setTesting(provider); const response = await fetch("/api/provider/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) }); setTests({ ...tests, [provider]: await response.json() }); setTesting(null); }
-  if (!data) return <AppShell title="Settings"><PageLoader/></AppShell>;
+  const { data } = useRadianceState();
+  const [tests, setTests] = useState<
+    Record<
+      string,
+      {
+        connected?: boolean;
+        message?: string;
+        model?: string;
+        latency?: number;
+      }
+    >
+  >({});
+  const [testing, setTesting] = useState<string | null>(null);
+  async function testProvider(provider: string) {
+    setTesting(provider);
+    const response = await fetch("/api/provider/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider }),
+    });
+    setTests({ ...tests, [provider]: await response.json() });
+    setTesting(null);
+  }
+  if (!data)
+    return (
+      <AppShell title="Settings">
+        <PageLoader />
+      </AppShell>
+    );
   const active = data.provider;
-  const metric = (model: string) => data.providerMetrics.find((item) => item.model === model);
-  return <AppShell eyebrow="System configuration" title="Settings"><div className="page-content settings-layout"><section className="surface provider-card"><div className="section-head"><div><h2>AI provider router</h2><p>DeepSeek handles normal turns. Gemini Flash-Lite handles language and low-confidence cases; Gemini 3.8 is reserved for difficult conversations.</p></div><div className="status-connected"><span className="pulse-dot"/>{titleCase(active)} primary</div></div><div className="provider-list">{[["deepseek","DeepSeek","Primary · deepseek-flash"],["gemini-lite","Gemini Flash-Lite","Language fallback · gemini-3.1-flash-lite"],["gemini-complex","Gemini 3.8","Complex fallback · gemini-3.8-flash"],["mock","Safe Rules","Deterministic continuity"]].map(([key,name,description]) => { const health = tests[key]; const model = key === "deepseek" ? "deepseek-flash" : key === "gemini-lite" ? "gemini-3.1-flash-lite" : key === "gemini-complex" ? "gemini-3.8-flash" : "Radiance deterministic rules"; const usage = metric(model); return <div className={`provider-row ${active === key ? "active" : ""}`} key={key}><div className="provider-logo">{key === "mock" ? <Bot/> : name[0]}</div><div><strong>{name}</strong><span>{description} · {Number(usage?.requests || 0)} requests today · {Number(usage?.errors || 0)} errors · {Number(usage?.avgLatency || 0)}ms avg · ${Number(usage?.estimatedCost || 0).toFixed(4)} est.</span>{health && <span>{health.connected ? "CONNECTED" : "NOT CONNECTED"} · {health.message}</span>}</div>{key !== "mock" ? <button className="secondary-button" onClick={() => testProvider(key)} disabled={testing === key}>{testing === key ? <LoaderCircle className="spin"/> : <Activity/>}Test</button> : <div className="radio-mark"><Check/></div>}</div>; })}</div><div className="env-note"><InfoIcon/><div><strong>Configured in the server environment</strong><code>AI_PRIMARY_PROVIDER=deepseek</code><span>Every model output is schema-validated. Provider fallback reasons and estimated costs are recorded.</span></div></div></section><aside className="surface privacy-card"><div className="privacy-icon"><Eye/></div><h2>Privacy + operations</h2><p>Models receive a minimal redacted context without phone, WhatsApp ID, email, database IDs, or raw CSV rows.</p><ul><li><Check/>Configured persistent storage</li><li><Check/>Explainable lead scoring</li><li><Check/>Provider usage + cost records</li><li><Check/>Append-only audit trail</li></ul><Link className="secondary-button full" href="/settings/readiness">Production readiness</Link><Link className="secondary-button full" href="/settings/appointments">Appointment calendar</Link><Link className="secondary-button full" href="/settings/meta">Meta WhatsApp settings</Link><Link className="secondary-button full" href="/automations">Automation controls</Link><Link className="secondary-button full" href="/leads/import">Import leads</Link></aside></div></AppShell>;
+  const metric = (model: string) =>
+    data.providerMetrics.find((item) => item.model === model);
+  return (
+    <AppShell eyebrow="System configuration" title="Settings">
+      <div className="page-content settings-layout">
+        <section className="surface provider-card">
+          <div className="section-head">
+            <div>
+              <h2>AI provider router</h2>
+              <p>
+                DeepSeek handles normal turns. Gemini Flash-Lite handles
+                language and low-confidence cases; Gemini 3.8 is reserved for
+                difficult conversations.
+              </p>
+            </div>
+            <div className="status-connected">
+              <span className="pulse-dot" />
+              {titleCase(active)} primary
+            </div>
+          </div>
+          <div className="provider-list">
+            {[
+              ["deepseek", "DeepSeek", "Primary · deepseek-flash"],
+              [
+                "gemini-lite",
+                "Gemini Flash-Lite",
+                "Language fallback · gemini-3.1-flash-lite",
+              ],
+              [
+                "gemini-complex",
+                "Gemini 3.8",
+                "Complex fallback · gemini-3.8-flash",
+              ],
+              ["mock", "Safe Rules", "Deterministic continuity"],
+            ].map(([key, name, description]) => {
+              const health = tests[key];
+              const model =
+                key === "deepseek"
+                  ? "deepseek-flash"
+                  : key === "gemini-lite"
+                    ? "gemini-3.1-flash-lite"
+                    : key === "gemini-complex"
+                      ? "gemini-3.8-flash"
+                      : "Radiance deterministic rules";
+              const usage = metric(model);
+              return (
+                <div
+                  className={`provider-row ${active === key ? "active" : ""}`}
+                  key={key}
+                >
+                  <div className="provider-logo">
+                    {key === "mock" ? <Bot /> : name[0]}
+                  </div>
+                  <div>
+                    <strong>{name}</strong>
+                    <span>
+                      {description} · {Number(usage?.requests || 0)} requests
+                      today · {Number(usage?.errors || 0)} errors ·{" "}
+                      {Number(usage?.avgLatency || 0)}ms avg · $
+                      {Number(usage?.estimatedCost || 0).toFixed(4)} est.
+                    </span>
+                    {health && (
+                      <span>
+                        {health.connected ? "CONNECTED" : "NOT CONNECTED"} ·{" "}
+                        {health.message}
+                      </span>
+                    )}
+                  </div>
+                  {key !== "mock" ? (
+                    <button
+                      className="secondary-button"
+                      onClick={() => testProvider(key)}
+                      disabled={testing === key}
+                    >
+                      {testing === key ? (
+                        <LoaderCircle className="spin" />
+                      ) : (
+                        <Activity />
+                      )}
+                      Test
+                    </button>
+                  ) : (
+                    <div className="radio-mark">
+                      <Check />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="env-note">
+            <InfoIcon />
+            <div>
+              <strong>Configured in the server environment</strong>
+              <code>AI_PRIMARY_PROVIDER=deepseek</code>
+              <span>
+                Every model output is schema-validated. Provider fallback
+                reasons and estimated costs are recorded.
+              </span>
+            </div>
+          </div>
+        </section>
+        <aside className="surface privacy-card">
+          <div className="privacy-icon">
+            <Eye />
+          </div>
+          <h2>Privacy + operations</h2>
+          <p>
+            Models receive a minimal redacted context without phone, WhatsApp
+            ID, email, database IDs, or raw CSV rows.
+          </p>
+          <ul>
+            <li>
+              <Check />
+              Configured persistent storage
+            </li>
+            <li>
+              <Check />
+              Explainable lead scoring
+            </li>
+            <li>
+              <Check />
+              Provider usage + cost records
+            </li>
+            <li>
+              <Check />
+              Append-only audit trail
+            </li>
+          </ul>
+          <Link className="secondary-button full" href="/settings/treatments">
+            Treatment + pricing
+          </Link>
+          <Link className="secondary-button full" href="/settings/staff">
+            Authorized staff
+          </Link>
+          <Link className="secondary-button full" href="/settings/readiness">
+            Production readiness
+          </Link>
+          <Link className="secondary-button full" href="/settings/appointments">
+            Appointment calendar
+          </Link>
+          <Link className="secondary-button full" href="/settings/meta">
+            Meta WhatsApp settings
+          </Link>
+          <Link className="secondary-button full" href="/automations">
+            Automation controls
+          </Link>
+          <Link className="secondary-button full" href="/leads/import">
+            Import leads
+          </Link>
+        </aside>
+      </div>
+    </AppShell>
+  );
 }
 
-function Metric({ icon, label, value, tone = "neutral" }: { icon: React.ReactNode; label: string; value: number | string; tone?: string }) { return <div className={`metric-card tone-${tone}`}><div className="metric-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div></div>; }
-function InfoCard({ label, rows, accent = false }: { label: string; rows: string[][]; accent?: boolean }) { return <section className={`surface info-card ${accent ? "accent" : ""}`}><span className="section-label">{label}</span>{rows.map(([key,value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</section>; }
-function InfoIcon() { return <CircleAlert size={17}/>; }
+function Metric({
+  icon,
+  label,
+  value,
+  tone = "neutral",
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number | string;
+  tone?: string;
+}) {
+  return (
+    <div className={`metric-card tone-${tone}`}>
+      <div className="metric-icon">{icon}</div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+function InfoCard({
+  label,
+  rows,
+  accent = false,
+}: {
+  label: string;
+  rows: string[][];
+  accent?: boolean;
+}) {
+  return (
+    <section className={`surface info-card ${accent ? "accent" : ""}`}>
+      <span className="section-label">{label}</span>
+      {rows.map(([key, value]) => (
+        <div key={key}>
+          <span>{key}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </section>
+  );
+}
+function InfoIcon() {
+  return <CircleAlert size={17} />;
+}
