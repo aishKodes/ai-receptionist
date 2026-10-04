@@ -69,7 +69,7 @@ describe("Radiance reception intelligence", () => {
 });
 
 describe("primary end-to-end production pipeline", () => {
-  it("captures CRM fields, safely answers price, offers slots and books", async () => {
+  it("captures CRM fields, safely answers price, collects only missing booking details and confirms", async () => {
     await processPatientMessage("pat_rahul", "Hi, I'm 29 and my hair has become very thin from the front for almost 3 years. I'm thinking about hair transplant.");
     let context = getPatientContext("pat_rahul")!;
     expect(context.patient.age).toBe(29);
@@ -91,7 +91,7 @@ describe("primary end-to-end production pipeline", () => {
 
     await processPatientMessage("pat_rahul", "Can I come tomorrow evening?");
     context = getPatientContext("pat_rahul")!;
-    expect(String(context.messages.at(-1)?.content)).toContain("5:30 PM");
+    expect(String(context.messages.at(-1)?.content)).toContain("between 5 PM and 6 PM");
 
     await processPatientMessage("pat_rahul", "5:30 works");
     context = getPatientContext("pat_rahul")!;

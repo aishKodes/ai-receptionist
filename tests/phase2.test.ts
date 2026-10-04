@@ -106,11 +106,11 @@ describe("outreach, appointments, and human mode", () => {
     expect(queuedForRahul).toBe(1);
     expect((await processOutboundOnce()).sent).toBeGreaterThanOrEqual(1);
   });
-  it("prevents double booking, reschedules, and cancels old reminders", () => {
+  it("allows normal clinic-hour overlap, reschedules, and cancels old reminders", () => {
     const date = getSqlite().prepare("SELECT date FROM available_slots WHERE time='10:00' ORDER BY date DESC LIMIT 1").get() as { date: string };
     expect(getAvailableSlots(date.date)).toContain("10:00");
     const one = bookAppointment("pat_rahul", "con_rahul", "hair_transplant", date.date, "10:00"); scheduleAppointmentJobs(one);
-    expect(() => bookAppointment("pat_ananya", "con_ananya", "acne_scars", date.date, "10:00")).toThrow();
+    expect(bookAppointment("pat_ananya", "con_ananya", "acne_scars", date.date, "10:00").status).toBe("confirmed");
     const next = rescheduleAppointment(one.id, date.date, "10:30");
     expect(next.dateTime).toContain("10:30");
     const cancelled = (getSqlite().prepare("SELECT COUNT(*) AS count FROM scheduled_jobs WHERE appointment_id=? AND status='cancelled'").get(one.id) as { count: number }).count;

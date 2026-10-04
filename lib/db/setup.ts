@@ -17,7 +17,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS conversation_state (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, preferred_language TEXT NOT NULL DEFAULT 'AUTO', active_flow TEXT, pending_question TEXT, pending_action TEXT, last_assistant_question TEXT, requested_date TEXT, requested_time TEXT, requested_day_part TEXT, offered_slots_json TEXT NOT NULL DEFAULT '[]', selected_slot TEXT, appointment_id TEXT, current_concern TEXT, current_treatment TEXT, previous_treatment INTEGER NOT NULL DEFAULT 0, rolling_summary TEXT, sent_content_ids_json TEXT NOT NULL DEFAULT '[]', last_content_sent_at TEXT, ai_mode TEXT NOT NULL DEFAULT 'AI', human_lock_until TEXT, booking_declined_for_now INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS treatments (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, category TEXT NOT NULL, description TEXT NOT NULL, approved_response_guidance TEXT NOT NULL, booking_enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS content_items (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, url TEXT NOT NULL, thumbnail_url TEXT, treatment_slug TEXT, tags_json TEXT NOT NULL DEFAULT '[]', when_to_send TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, approved_for_ai INTEGER NOT NULL DEFAULT 1, approved_for_production INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS appointments (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), conversation_id TEXT NOT NULL REFERENCES conversations(id), treatment_slug TEXT, date_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS appointments (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), conversation_id TEXT NOT NULL REFERENCES conversations(id), treatment_slug TEXT, date_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'confirmed', notes TEXT, booking_key TEXT, created_at TEXT NOT NULL, updated_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS scheduled_jobs (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id), conversation_id TEXT NOT NULL REFERENCES conversations(id), appointment_id TEXT REFERENCES appointments(id), job_type TEXT NOT NULL, scheduled_for TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', payload_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, executed_at TEXT, error TEXT)`,
   `CREATE TABLE IF NOT EXISTS ai_events (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, event_type TEXT NOT NULL, title TEXT NOT NULL, details TEXT, metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -51,13 +51,14 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_provider_usage_created ON provider_usage(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_outbound_due ON outbound_messages(status, scheduled_for)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_campaign_patient ON outbound_messages(campaign_id, patient_id) WHERE campaign_id IS NOT NULL`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_slot ON appointments(date_time) WHERE status = 'confirmed'`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_booking_key ON appointments(booking_key) WHERE booking_key IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS idx_doctor_reviews_status ON doctor_reviews(status, priority, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_prices_treatment_status ON treatment_prices(treatment_id, approval_status, active)`,
   `CREATE INDEX IF NOT EXISTS idx_staff_phone_active ON authorized_staff_contacts(phone, active)`,
 ];
 
 const additiveColumns: Array<[string, string, string]> = [
+  ["appointments", "booking_key", "TEXT"],
   ["patients", "name_source", "TEXT NOT NULL DEFAULT 'whatsapp_profile'"],
   ["patients", "name_verified", "INTEGER NOT NULL DEFAULT 0"],
   ["patients", "whatsapp_id", "TEXT"],
@@ -151,6 +152,11 @@ function ensureAdditiveColumns() {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_message_id) WHERE external_message_id IS NOT NULL",
   );
+  // Radiance no longer models appointment times as one-person inventory.
+  // Retire the old global unique slot key and keep only per-conversation
+  // idempotency for an identical booking request.
+  db.exec("DROP INDEX IF EXISTS idx_appointments_slot");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_booking_key ON appointments(booking_key) WHERE booking_key IS NOT NULL");
 }
 
 function ensureOperationalDefaults() {
@@ -660,38 +666,25 @@ export function seedDatabase(force = false) {
     const settings = {
       appointmentScheduleJson: JSON.stringify({
         weekly: {
-          sunday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
-          monday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
-          tuesday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
-          wednesday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
-          thursday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
-          friday: [
-            { start: "10:00", end: "13:30" },
-            { start: "15:30", end: "19:30" },
-          ],
+          sunday: [{ start: "10:00", end: "18:00" }],
+          monday: [{ start: "10:00", end: "18:00" }],
+          tuesday: [{ start: "10:00", end: "18:00" }],
+          wednesday: [{ start: "10:00", end: "18:00" }],
+          thursday: [{ start: "10:00", end: "18:00" }],
+          friday: [{ start: "10:00", end: "18:00" }],
           saturday: [],
         },
         slotMinutes: 30,
-        bookingLeadMinutes: 30,
+        bookingLeadMinutes: 0,
         maxAdvanceDays: 15,
         closedDates: [],
         blockedSlots: [],
+        arbitraryTimes: true,
+        sameDayBooking: true,
+        autoConfirm: true,
+        specialHours: [],
       }),
+      appointmentPolicyVersion: "radiance-open-hours-v2",
       appointmentConfirmation: "true",
       appointmentReminder1: "true",
       appointmentReminder2: "true",

@@ -72,11 +72,11 @@ export function getApprovedPrice(
 }
 
 function consultationOffer(language: string) {
-  if (language === "HINDI") return "क्या मैं उपलब्ध परामर्श समय देखूँ?";
+  if (language === "HINDI") return "क्या आप परामर्श बुक करना चाहेंगे?";
   if (language === "HINGLISH")
-    return "Kya main available consultation times check karun?";
-  if (language === "ODIA") return "ମୁଁ ଉପଲବ୍ଧ ପରାମର୍ଶ ସମୟ ଯାଞ୍ଚ କରିଦେବି କି?";
-  return "Would you like me to check the available consultation times?";
+    return "Kya aap consultation book karna chahenge?";
+  if (language === "ODIA") return "ଆପଣ ପରାମର୍ଶ ବୁକ୍ କରିବାକୁ ଚାହିବେ କି?";
+  return "Would you like to book a consultation?";
 }
 
 export function approvedPriceReply(price: ApprovedPrice, language: string) {

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { MessageChannel, SendContentInput, SendTemplateInput, SendTextInput } from "./channel";
+import type { MessageChannel, SendContentInput, SendListInput, SendQuickRepliesInput, SendTemplateInput, SendTextInput } from "./channel";
 
 export function verifyMetaSignature(rawBody: string, signature: string | null, secret = process.env.META_APP_SECRET || "") {
   if (!secret || !signature?.startsWith("sha256=")) return false;
@@ -23,7 +23,10 @@ export class RealWhatsAppCloudChannel implements MessageChannel {
       body: JSON.stringify({ messaging_product: "whatsapp", ...payload }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error(`WhatsApp send failed (${response.status})`);
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`WhatsApp send failed (${response.status})${detail ? `: ${detail.slice(0, 240)}` : ""}`);
+    }
     const json = await response.json() as { messages?: Array<{ id: string }> };
     return { id: json.messages?.[0]?.id || crypto.randomUUID(), status: "accepted" };
   }
@@ -31,5 +34,15 @@ export class RealWhatsAppCloudChannel implements MessageChannel {
   sendContent({ to, text, url }: SendContentInput) { return this.sendText({ to, text: `${text}\n${url}` }); }
   sendTemplate({ to, templateName, language, variables }: SendTemplateInput) {
     return this.send({ to, type: "template", template: { name: templateName, language: { code: language }, components: variables.length ? [{ type: "body", parameters: variables.map((text) => ({ type: "text", text })) }] : [] } });
+  }
+  sendQuickReplies({ to, text, options }: SendQuickRepliesInput) {
+    const buttons = options.slice(0, 3).map((option) => ({ type: "reply", reply: { id: option.id.slice(0, 256), title: option.label.slice(0, 20) } }));
+    if (!buttons.length) return this.sendText({ to, text });
+    return this.send({ to, type: "interactive", interactive: { type: "button", body: { text: text.slice(0, 1024) }, action: { buttons } } });
+  }
+  sendList({ to, text, buttonLabel = "Choose an option", sections }: SendListInput) {
+    const rows = sections.flatMap((section) => section.options.map((option) => ({ id: option.id.slice(0, 200), title: option.label.slice(0, 24), description: "" }))).slice(0, 10);
+    if (!rows.length) return this.sendText({ to, text });
+    return this.send({ to, type: "interactive", interactive: { type: "list", body: { text: text.slice(0, 1024) }, action: { button: buttonLabel.slice(0, 20), sections: [{ title: sections[0]?.title?.slice(0, 24) || "Options", rows }] } } });
   }
 }

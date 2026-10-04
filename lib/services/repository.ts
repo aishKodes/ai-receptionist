@@ -6,6 +6,7 @@ import {
   appointmentConfiguration,
   appointmentConfigurationMissing,
 } from "@/lib/scheduling/availability";
+import { checkAppointmentTime, formatAppointmentDateTime } from "@/lib/scheduling/booking-policy";
 
 let initialized = false;
 export function ready() {
@@ -316,12 +317,13 @@ export function getAvailableSlots(
       : 0;
   const rows = db
     .prepare(
-      `SELECT s.time FROM available_slots s WHERE s.date = ? AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.status = 'confirmed' AND substr(a.date_time,1,10) = s.date AND substr(a.date_time,12,5) = s.time) ORDER BY s.time`,
+      `SELECT s.time FROM available_slots s WHERE s.date = ? AND s.active = 1 ORDER BY s.time`,
     )
     .all(date) as Array<{ time: string }>;
   return rows
     .map((row) => row.time)
     .filter((time) => {
+      if (!checkAppointmentTime(date, time).ok) return false;
       const [hour, minute] = time.split(":").map(Number);
       return (
         hour * 60 + minute >= earliestMinutes &&
@@ -334,53 +336,59 @@ export function getAvailableSlots(
     });
 }
 
-export function bookAppointment(
-  patientId: string,
-  conversationId: string,
-  treatmentSlug: string | null,
-  date: string,
-  time: string,
-) {
+export type CreateAppointmentInput = {
+  patientId: string;
+  conversationId: string;
+  treatmentSlug: string | null;
+  date: string;
+  time: string;
+  source?: "WHATSAPP_AI" | "CRM" | "LOCAL_TEST";
+  notes?: string | null;
+};
+
+/**
+ * The authoritative booking write. The AI may only say "confirmed" after this
+ * function returns. Radiance checks whether the clinic is open, not whether a
+ * particular time has scarce capacity.
+ */
+export function createAppointment(input: CreateAppointmentInput) {
   const db = ready();
+  const source = input.source || "WHATSAPP_AI";
+  const check = checkAppointmentTime(input.date, input.time);
+  if (!check.ok) throw new Error(`BOOKING_${check.code}`);
+  const dateTime = `${input.date}T${input.time}:00+05:30`;
+  const bookingKey = `${input.conversationId}|${dateTime}`;
   const result = db.transaction(() => {
-    if (!getAvailableSlots(date).includes(time))
-      throw new Error("That consultation time is no longer available.");
+    const duplicate = db.prepare(
+      "SELECT id,patient_id AS patientId,conversation_id AS conversationId,treatment_slug AS treatmentSlug,date_time AS dateTime,status,notes FROM appointments WHERE booking_key=? LIMIT 1",
+    ).get(bookingKey) as { id: string; patientId: string; conversationId: string; treatmentSlug: string | null; dateTime: string; status: string; notes: string | null } | undefined;
+    if (duplicate) return { ...duplicate, duplicate: true };
+
     const id = makeId("apt");
-    const dateTime = `${date}T${time}:00+05:30`;
     const now = nowIso();
+    db.prepare("UPDATE appointments SET status='rescheduled', updated_at=? WHERE patient_id=? AND status='confirmed'").run(now, input.patientId);
+    db.prepare("UPDATE scheduled_jobs SET status='cancelled', executed_at=? WHERE patient_id=? AND status='pending' AND appointment_id IS NOT NULL").run(now, input.patientId);
     db.prepare(
-      "UPDATE appointments SET status = 'rescheduled', updated_at = ? WHERE patient_id = ? AND status = 'confirmed'",
-    ).run(now, patientId);
-    db.prepare(
-      "UPDATE scheduled_jobs SET status='cancelled', executed_at=? WHERE patient_id=? AND status='pending' AND appointment_id IS NOT NULL",
-    ).run(now, patientId);
-    db.prepare(
-      "INSERT INTO appointments (id,patient_id,conversation_id,treatment_slug,date_time,status,notes,created_at,updated_at) VALUES (?,?,?,?,?,'confirmed',?,?,?)",
+      "INSERT INTO appointments (id,patient_id,conversation_id,treatment_slug,date_time,status,notes,booking_key,created_at,updated_at) VALUES (?,?,?,?,?,'confirmed',?,?,?,?)",
     ).run(
       id,
-      patientId,
-      conversationId,
-      treatmentSlug,
+      input.patientId,
+      input.conversationId,
+      input.treatmentSlug,
       dateTime,
-      "Booked by Radiance AI Reception",
+      `${source}${input.notes ? ` · ${input.notes.slice(0, 800)}` : ""}`,
+      bookingKey,
       now,
       now,
     );
-    return {
-      id,
-      patientId,
-      conversationId,
-      treatmentSlug,
-      dateTime,
-      status: "confirmed" as const,
-    };
+    return { id, patientId: input.patientId, conversationId: input.conversationId, treatmentSlug: input.treatmentSlug, dateTime, status: "confirmed" as const, notes: input.notes || null, duplicate: false };
   })();
-  updatePatient(patientId, {
-    leadStage: "booked",
-    leadScore: 95,
-    leadTemperature: "HOT",
-  });
+  if (!result.duplicate) updatePatient(input.patientId, { leadStage: "booked", leadScore: 95, leadTemperature: "HOT" });
   return result;
+}
+
+export function bookAppointment(patientId: string, conversationId: string, treatmentSlug: string | null, date: string, time: string) {
+  return createAppointment({ patientId, conversationId, treatmentSlug, date, time, source: "WHATSAPP_AI", notes: "Booked by Radiance AI Reception" });
 }
 
 export function changeAppointment(
@@ -1293,5 +1301,6 @@ export function setAiMode(
 }
 
 export function timeLabel(dateTime: string) {
-  return format(parseISO(dateTime), "EEE, d MMM · h:mm a");
+  const match = dateTime.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return match ? formatAppointmentDateTime(match[1], match[2]) : format(parseISO(dateTime), "EEE, d MMM · h:mm a");
 }

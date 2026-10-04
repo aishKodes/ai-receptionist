@@ -35,9 +35,7 @@ export function ReceptionTestPanel() {
   }, []);
   useEffect(() => { stream.current?.scrollTo({ top: stream.current.scrollHeight, behavior: "smooth" }); }, [context?.messages.length, busy]);
 
-  async function send(event?: FormEvent) {
-    event?.preventDefault();
-    const text = message.trim();
+  async function sendText(text: string) {
     if (!text || busy) return;
     setBusy(true); setError(""); setMessage("");
     try {
@@ -47,6 +45,10 @@ export function ReceptionTestPanel() {
       setContext(body.context);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The receptionist could not answer."); }
     finally { setBusy(false); }
+  }
+  async function send(event?: FormEvent) {
+    event?.preventDefault();
+    await sendText(message.trim());
   }
 
   async function reset() {
@@ -78,7 +80,7 @@ export function ReceptionTestPanel() {
         <div className="patient-chat-bg" ref={stream}>
           <div className="encryption-note">LOCAL TEST · Messages are not delivered to WhatsApp</div>
           {!context?.messages.length && <div className="patient-welcome"><div className="clinic-avatar large"><Bot size={23}/></div><strong>Start a patient conversation</strong><span>Use English, Hindi, Hinglish or Odia</span><p>Try “Hi” first, then ask about a concern, consultation, price, video or appointment.</p></div>}
-          {context?.messages.map((item) => <MessageBubble key={item.id} message={item} patientView/>)}
+          {context?.messages.map((item) => <MessageBubble key={item.id} message={item} patientView onInteractionClick={(value) => { void sendText(value); }}/>) }
           {busy && <div className="typing-bubble" aria-label="Receptionist typing"><span/><span/><span/></div>}
           {error && <div className="test-chat-error">{error}</div>}
         </div>

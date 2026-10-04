@@ -193,6 +193,7 @@ export const appointments = sqliteTable("appointments", {
   dateTime: text("date_time").notNull(),
   status: text("status").notNull().default("confirmed"),
   notes: text("notes"),
+  bookingKey: text("booking_key"),
   ...timestamps,
 });
 

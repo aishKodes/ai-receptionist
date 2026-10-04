@@ -18,7 +18,7 @@ type MetaMessage = {
   text?: { body?: string }; image?: { id?: string; mime_type?: string; caption?: string };
   video?: { id?: string; mime_type?: string; caption?: string }; audio?: { id?: string; mime_type?: string };
   document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
-  interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+  interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
 };
 type MetaStatus = { id?: string; status?: string; timestamp?: string; errors?: Array<{ code?: number; title?: string }> };
 type MetaValue = { contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>; messages?: MetaMessage[]; message_echoes?: MetaMessage[]; statuses?: MetaStatus[] };
@@ -34,7 +34,7 @@ function finishWebhookEvent(externalId: string) {
 }
 
 function messageText(message: MetaMessage) {
-  return message.text?.body || message.image?.caption || message.video?.caption || message.document?.caption || message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || "";
+  return message.text?.body || message.image?.caption || message.video?.caption || message.document?.caption || message.interactive?.button_reply?.id || message.interactive?.button_reply?.title || message.interactive?.list_reply?.id || message.interactive?.list_reply?.title || "";
 }
 
 function storeStaffEcho(message: MetaMessage, contactPhone?: string) {

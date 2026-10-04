@@ -370,7 +370,7 @@ export async function resolveDoctorReview(input: {
   const patientReply = /(?:visit|come|tomorrow|morning|evening|clinic)/i.test(
     response,
   )
-    ? "The doctor would like you to visit the clinic so this can be assessed properly. Would you like me to check the available consultation times?"
+    ? "The doctor would like you to visit the clinic so this can be assessed properly. Would you like to book a consultation?"
     : `The clinical team has reviewed your question. ${response.replace(/\b(?:I|we)\s+(?:told|said|asked)\b/gi, "They advised").slice(0, 700)}`;
   const now = nowIso();
   db.prepare(

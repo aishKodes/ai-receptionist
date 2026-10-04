@@ -31,7 +31,7 @@ function contentIcon(type: string) {
   return <FileQuestion size={17}/>;
 }
 
-export function MessageBubble({ message, patientView = false }: { message: Message; patientView?: boolean }) {
+export function MessageBubble({ message, patientView = false, onInteractionClick }: { message: Message; patientView?: boolean; onInteractionClick?: (value: string) => void }) {
   let meta: Record<string, unknown> = {};
   try { meta = JSON.parse(message.metadataJson || "{}"); } catch {}
   if (message.senderType === "system" || message.messageType === "system") {
@@ -52,6 +52,6 @@ export function MessageBubble({ message, patientView = false }: { message: Messa
   }
   return <div className={`message-row ${own ? "own" : ""}`}><div className={`message-bubble sender-${message.senderType}`}>
     {!isPatient && !patientView && <span className="message-sender">{message.senderType === "human" ? <UserRound size={12}/> : <Bot size={12}/>} {message.senderType === "human" ? "Radiance reception" : message.senderType === "automation" ? "Automation" : "Radiance AI"}</span>}
-    <p>{message.content}</p><div className="message-meta"><time>{shortTime(message.createdAt)}</time>{own && <CheckCheck size={14}/>}</div>
+    <p>{message.content}</p>{patientView && onInteractionClick && Array.isArray((meta.interaction as { options?: unknown[] } | undefined)?.options) && <div className="message-quick-actions">{((meta.interaction as { options: Array<{ id?: string; label?: string; value?: string }> }).options || []).map((option) => option.label && option.value ? <button type="button" key={option.id || option.value} onClick={() => onInteractionClick(String(option.value))}>{option.label}</button> : null)}</div>}<div className="message-meta"><time>{shortTime(message.createdAt)}</time>{own && <CheckCheck size={14}/>}</div>
   </div></div>;
 }

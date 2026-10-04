@@ -78,7 +78,7 @@ export class MockProvider implements AIProvider {
     let reply = "Thank you for reaching out to Radiance Clinics. Could you briefly share the concern you’d like help with?";
     if (wantsHuman) reply = "Of course. I’m alerting the Radiance reception team so a person can assist you directly.";
     else if (isPrice) reply = "The final cost depends on your concern, the treatment plan and, where applicable, the procedure extent. The clinic team can give you an accurate estimate after a doctor’s assessment. I can help you book a consultation if you’d like.";
-    else if (isBooking) reply = "I can help with that. I’ll check the clinic’s available consultation times for you.";
+    else if (isBooking) reply = "I can help with that. Please tell me the day and time that would suit you.";
     else if (isThanks) {
       const appointment = (input.patient.leadStage ?? input.patient.stage) === "booked" || (input.patient.appointment as { status?: string } | null)?.status === "confirmed";
       reply = appointment ? `You’re welcome${input.patient.firstName ? `, ${String(input.patient.firstName)}` : ""}. Your consultation remains confirmed. Message anytime if you need help before your visit.` : "You’re very welcome. Message anytime if you’d like help with a consultation.";
@@ -96,21 +96,21 @@ export class MockProvider implements AIProvider {
     if (language === "HINDI") {
       if (wantsHuman) reply = "ज़रूर। मैं रिसेप्शन टीम को सूचित कर रहा हूँ ताकि कोई व्यक्ति आपकी सहायता कर सके।";
       else if (isPrice) reply = "अंतिम लागत आपकी समस्या, उपचार योजना और प्रक्रिया की सीमा पर निर्भर करती है। सही अनुमान डॉक्टर की जाँच के बाद ही दिया जा सकता है। चाहें तो मैं परामर्श बुक करने में मदद कर सकता हूँ।";
-      else if (isBooking) reply = "ज़रूर। मैं क्लिनिक में उपलब्ध वास्तविक परामर्श समय देखता हूँ।";
+      else if (isBooking) reply = "ज़रूर। कृपया अपनी पसंद का दिन और समय बताएं।";
       else if (isThanks) reply = "आपका स्वागत है। परामर्श से जुड़ी किसी भी मदद के लिए यहाँ संदेश भेज सकते हैं।";
       else if (detected) reply = "आपकी जानकारी के लिए धन्यवाद। सही उपचार डॉक्टर की जाँच के बाद ही तय किया जा सकता है। क्या आपने इस समस्या के लिए पहले कोई उपचार लिया है?";
       else reply = "Radiance Clinics से संपर्क करने के लिए धन्यवाद। कृपया अपनी समस्या के बारे में संक्षेप में बताएं।";
     } else if (language === "HINGLISH") {
       if (wantsHuman) reply = "Bilkul. Main reception team ko alert kar raha hoon, taaki koi person aapki help kar sake.";
       else if (isPrice) reply = "Final cost concern, treatment plan aur procedure ki extent par depend karti hai. Accurate estimate doctor assessment ke baad milega. Chahein to main consultation book karne mein help kar sakta hoon.";
-      else if (isBooking) reply = "Bilkul. Main clinic ke actual available consultation slots check karta hoon.";
+      else if (isBooking) reply = "Bilkul. Aap apni preferred date aur time bata dijiye.";
       else if (isThanks) reply = "You’re welcome. Consultation se related kisi bhi help ke liye yahin message kar sakte hain.";
       else if (detected) reply = "Details share karne ke liye thank you. Sahi treatment doctor assessment ke baad hi decide hoga. Kya aapne is concern ke liye pehle koi treatment liya hai?";
       else reply = "Radiance Clinics se contact karne ke liye thank you. Aap kis concern ke liye help chahte hain?";
     } else if (language === "ODIA") {
       if (wantsHuman) reply = "ନିଶ୍ଚୟ। ଆମ ରିସେପ୍ସନ୍ ଟିମ୍‌ର ଜଣେ ସଦସ୍ୟ ଆପଣଙ୍କୁ ସହାୟତା କରିବେ।";
       else if (isPrice) reply = "ଅନ୍ତିମ ଖର୍ଚ୍ଚ ଆପଣଙ୍କ ସମସ୍ୟା, ଚିକିତ୍ସା ଯୋଜନା ଏବଂ ପ୍ରକ୍ରିୟାର ପରିମାଣ ଉପରେ ନିର୍ଭର କରେ। ଡାକ୍ତରଙ୍କ ପରୀକ୍ଷା ପରେ ସଠିକ୍ ଆନୁମାନ ମିଳିବ।";
-      else if (isBooking) reply = "ନିଶ୍ଚୟ। ମୁଁ କ୍ଲିନିକ୍‌ର ଉପଲବ୍ଧ ପରାମର୍ଶ ସମୟ ଯାଞ୍ଚ କରୁଛି।";
+      else if (isBooking) reply = "ନିଶ୍ଚୟ। ଆପଣଙ୍କ ପସନ୍ଦର ତାରିଖ ଓ ସମୟ କୁହନ୍ତୁ।";
       else if (isThanks) reply = "ଆପଣଙ୍କୁ ସ୍ୱାଗତ। ପରାମର୍ଶ ସମ୍ବନ୍ଧୀୟ ସହାୟତା ପାଇଁ ଏଠାରେ ସନ୍ଦେଶ କରନ୍ତୁ।";
       else if (detected) reply = "ବିବରଣୀ ଦେଇଥିବାରୁ ଧନ୍ୟବାଦ। ଡାକ୍ତରଙ୍କ ପରୀକ୍ଷା ପରେ ଉପଯୁକ୍ତ ଚିକିତ୍ସା ନିର୍ଦ୍ଧାରଣ ହେବ। ଏହି ସମସ୍ୟା ପାଇଁ ପୂର୍ବରୁ କୌଣସି ଚିକିତ୍ସା ନେଇଛନ୍ତି କି?";
       else reply = "Radiance Clinics ସହ ଯୋଗାଯୋଗ କରିଥିବାରୁ ଧନ୍ୟବାଦ। ଦୟାକରି ଆପଣଙ୍କ ସମସ୍ୟା ବିଷୟରେ ସଂକ୍ଷେପରେ କୁହନ୍ତୁ।";
@@ -132,7 +132,7 @@ export class MockProvider implements AIProvider {
         priority: isPostProcedure ? "high" : isComplaint ? "high" : wantsHuman ? "normal" : "low",
         reason: wantsHuman ? "Patient requested a person" : isPostProcedure ? "Post-procedure concern requires clinical review" : isComplaint ? "Complaint requires staff follow-up" : null,
       },
-      suggestedNextAction: isBooking ? "Check real appointment availability" : wantsHuman ? "Create a reception task" : detected ? "Answer briefly and offer relevant approved content" : "Ask one clarifying question",
+      suggestedNextAction: isBooking ? "Collect date and time for deterministic clinic-open booking" : wantsHuman ? "Create a reception task" : detected ? "Answer briefly and offer relevant approved content" : "Ask one clarifying question",
       internalSummary: detected ? `Patient is discussing ${treatmentName(detected).toLowerCase()}.` : "Patient has started a general enquiry.",
     };
   }

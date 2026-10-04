@@ -1,6 +1,11 @@
 export type InteractionType = "NONE" | "BUTTONS" | "LIST" | "DATE_CHOICES" | "SLOT_CHOICES";
 export type InteractionOption = { id: string; label: string; value: string };
 export type Interaction = { type: InteractionType; options: InteractionOption[] };
+export type ChoiceContext = {
+  reason: "greeting" | "category" | "ambiguous_concern" | "booking_date" | "booking_time" | "booking_offer" | "post_booking" | "answer";
+  intentConfidence?: number;
+  hasResolvedIntent?: boolean;
+};
 
 const categoryOptions: InteractionOption[] = [
   { id: "hair", label: "Hair", value: "category:hair" },
@@ -39,14 +44,28 @@ const treatmentOptions: InteractionOption[] = [
 
 export const noInteraction: Interaction = { type: "NONE", options: [] };
 
+/** Buttons reduce typing at genuine decisions; they never replace free text. */
+export function shouldOfferChoices(context: ChoiceContext) {
+  if (context.reason === "answer") return false;
+  if (context.reason === "greeting" || context.reason === "category" || context.reason === "booking_date" || context.reason === "booking_time" || context.reason === "post_booking") return true;
+  if (context.reason === "booking_offer") return !context.hasResolvedIntent || (context.intentConfidence ?? 0) < 0.95;
+  return (context.intentConfidence ?? 0) < 0.82;
+}
+
 export function greetingInteraction(): Interaction { return { type: "BUTTONS", options: categoryOptions }; }
 export function categoryInteraction(category: string): Interaction { return { type: "BUTTONS", options: concernOptions[category] || [] }; }
 export function treatmentInteraction(): Interaction { return { type: "BUTTONS", options: treatmentOptions }; }
 export function consultationInteraction(): Interaction {
   return { type: "BUTTONS", options: [
-    { id: "check_slots", label: "Check consultation slots", value: "action:book" },
-    { id: "assessment", label: "How assessment works", value: "topic:assessment" },
+    { id: "book", label: "Book consultation", value: "action:book" },
     { id: "another", label: "Ask another question", value: "topic:another" },
+  ] };
+}
+export function confirmedAppointmentInteraction(): Interaction {
+  return { type: "BUTTONS", options: [
+    { id: "directions", label: "Get directions", value: "action:directions" },
+    { id: "reschedule", label: "Reschedule", value: "action:reschedule" },
+    { id: "cancel", label: "Cancel appointment", value: "action:cancel" },
   ] };
 }
 export function dateInteraction(): Interaction {
@@ -58,6 +77,13 @@ export function dateInteraction(): Interaction {
 }
 export function slotInteraction(slots: string[]): Interaction {
   return { type: "SLOT_CHOICES", options: slots.slice(0, 4).map((slot, index) => ({ id: `slot_${index + 1}`, label: slot, value: `slot:${slot}` })) };
+}
+export function timeSuggestionInteraction(times: string[]): Interaction {
+  const label = (time: string) => {
+    const hour = Number(time.slice(0, 2));
+    return `${hour % 12 || 12}${time.endsWith(":00") ? "" : `:${time.slice(3)}`} ${hour >= 12 ? "PM" : "AM"}`;
+  };
+  return { type: "BUTTONS", options: times.slice(0, 3).map((time) => ({ id: `time_${time.replace(":", "")}`, label: label(time), value: `time:${time}` })) };
 }
 
 export function formatInteraction(interaction: Interaction) {

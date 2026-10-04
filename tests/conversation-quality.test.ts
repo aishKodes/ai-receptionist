@@ -171,12 +171,12 @@ describe("conversation-quality: persisted local flows", () => {
     expect((getSqlite().prepare("SELECT COUNT(*) AS count FROM human_tasks WHERE patient_id='pat_rahul' AND type='CALL'").get() as { count: number }).count).toBe(1);
     expect((getSqlite().prepare("SELECT COUNT(*) AS count FROM provider_usage").get() as { count: number }).count).toBe(before);
   });
-  it("answers a combined price and appointment request before offering real slots", async () => {
+  it("asks only for the missing time when a patient gives a date and day-part", async () => {
     await processIncomingMessage({ channel: "local", patientId: "pat_ananya", text: "How much will it cost and can I come tomorrow evening?", messageType: "text" });
     const context = getPatientContext("pat_ananya")!;
-    expect(String(context.messages.at(-1)?.content)).toMatch(/final cost depends/i);
+    expect(String(context.messages.at(-1)?.content)).toMatch(/between 5 PM and 6 PM/i);
     expect(context.state.nextBestAction).toBe("OFFER_BOOKING");
-    expect(context.state.pendingAction).toBe("select_slot");
+    expect(context.state.pendingAction).toBe("collect_booking_time");
   });
   it("does not press a hesitant patient after a slot discussion", async () => {
     await processIncomingMessage({ channel: "local", patientId: "pat_ananya", text: "I need to think about it; not planning to book now", messageType: "text" });

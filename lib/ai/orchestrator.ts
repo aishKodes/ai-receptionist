@@ -19,6 +19,7 @@ import {
 } from "@/lib/crm/scoring";
 import {
   categoryInteraction,
+  confirmedAppointmentInteraction,
   consultationInteraction,
   dateInteraction,
   greetingInteraction,
@@ -26,8 +27,8 @@ import {
   parseOptions,
   resolveInteractionInput,
   slotInteraction,
+  timeSuggestionInteraction,
   treatmentInteraction,
-  withInteractionText,
   type Interaction,
 } from "@/lib/product/interactions";
 import { priceResponse } from "@/lib/product/pricing";
@@ -36,6 +37,7 @@ import {
   addEvent,
   addLeadScoreEvent,
   addMessage,
+  createAppointment,
   bookAppointment,
   changeAppointment,
   createHumanTask,
@@ -51,6 +53,7 @@ import {
   updatePatient,
   ready,
 } from "@/lib/services/repository";
+import { checkAppointmentTime, clinicHoursLabel, dayPartFromText, formatAppointmentDateTime, hasApproximateAppointmentTime, parseAppointmentDate, parseAppointmentTime, timeSuggestions } from "@/lib/scheduling/booking-policy";
 
 function displayTime(time: string) {
   const [hour, minute] = time.split(":").map(Number);
@@ -147,12 +150,12 @@ function languageAcknowledgement(language: string) {
 function slotOfferReply(language: string, dateLabel: string, slots: string[]) {
   const times = slots.map(displayTime).join(", ");
   if (language === "HINDI")
-    return `मैंने क्लिनिक का वास्तविक कैलेंडर जाँच लिया है। ${dateLabel} को ${times} उपलब्ध हैं। कौन सा समय आपके लिए सुविधाजनक है?`;
+    return `${dateLabel} को क्लिनिक खुला है। आप ${times} चुन सकते हैं, या अपनी सुविधा का कोई और समय लिख सकते हैं।`;
   if (language === "HINGLISH")
-    return `Maine clinic ka actual calendar check kiya hai. ${dateLabel} ko ${times} available hain. Kaunsa time aapke liye convenient rahega?`;
+    return `${dateLabel} ko clinic khula hai. Aap ${times} choose kar sakte hain, ya koi aur convenient time type kar sakte hain.`;
   if (language === "ODIA")
-    return `ମୁଁ କ୍ଲିନିକ୍‌ର ପ୍ରକୃତ କ୍ୟାଲେଣ୍ଡର ଯାଞ୍ଚ କରିଛି। ${dateLabel} ରେ ${times} ଉପଲବ୍ଧ ଅଛି। କେଉଁ ସମୟ ଆପଣଙ୍କ ପାଇଁ ସୁବିଧାଜନକ?`;
-  return `Yes — I checked the actual consultation calendar. ${dateLabel} has ${times} available. Which time would suit you?`;
+    return `${dateLabel} ରେ କ୍ଲିନିକ୍ ଖୋଲା ଅଛି। ଆପଣ ${times} ବାଛିପାରିବେ କିମ୍ବା ଅନ୍ୟ ଏକ ସୁବିଧାଜନକ ସମୟ ଲେଖିପାରିବେ।`;
+  return `Sure — the clinic is open on ${dateLabel}. You can choose ${times}, or type another time that suits you.`;
 }
 
 function priceGuidance(language: string) {
@@ -167,12 +170,12 @@ function priceGuidance(language: string) {
 
 function softBookingOffer(language: string) {
   if (language === "HINDI")
-    return "अगर आप चाहें, तो मैं डॉक्टर से परामर्श के उपलब्ध समय देख सकता हूँ।";
+    return "अगर आप चाहें, तो मैं डॉक्टर से परामर्श बुक कर सकता हूँ।";
   if (language === "HINGLISH")
-    return "Agar aap chahein, main doctor consultation ke available times check kar sakta hoon.";
+    return "Agar aap chahein, main doctor consultation book kar sakta hoon.";
   if (language === "ODIA")
-    return "ଆପଣ ଚାହିଁଲେ, ମୁଁ ଡାକ୍ତରଙ୍କ ପରାମର୍ଶ ପାଇଁ ଉପଲବ୍ଧ ସମୟ ଯାଞ୍ଚ କରିପାରିବି।";
-  return "If you'd like, I can check the available consultation times so the doctor can assess this properly.";
+    return "ଆପଣ ଚାହିଁଲେ, ମୁଁ ଡାକ୍ତରଙ୍କ ପରାମର୍ଶ ବୁକ୍ କରିପାରିବି।";
+  return "If you'd like, I can book a consultation so the doctor can assess this properly.";
 }
 
 function bookingDeclinedReply(language: string) {
@@ -302,14 +305,13 @@ export async function processPatientMessage(
     state: Record<string, unknown> = {},
     interaction: Interaction = noInteraction,
   ) => {
-    const patientText = withInteractionText(reply, interaction);
     addMessage({
       patientId,
       conversationId,
       direction: "outbound",
       senderType: "ai",
-      content: patientText,
-      messageType: interaction.type === "NONE" ? "text" : "interactive",
+      content: reply.trim(),
+      messageType: state.appointmentId ? "appointment" : interaction.type === "NONE" ? "text" : "interactive",
       metadata: interaction.type === "NONE" ? {} : { interaction },
     });
     updateConversationState(conversationId, {
@@ -404,8 +406,10 @@ export async function processPatientMessage(
         "Which day would be convenient for your consultation?",
         {
           conversationPhase: "BOOKING",
-          pendingAction: "select_date",
-          nextBestAction: "CHECK_SLOTS",
+          pendingAction: "collect_booking_date",
+          pendingQuestion: "Which day would be convenient for your consultation?",
+          offeredSlotsJson: "[]",
+          nextBestAction: "OFFER_BOOKING",
           nextActionReason: "Patient chose consultation",
         },
         dateInteraction(),
@@ -422,20 +426,37 @@ export async function processPatientMessage(
       content = "Book consultation Saturday";
     else if (chosenOption.value === "date:other")
       return directReply(
-        "Please tell me the date you prefer, and I’ll check the live clinic calendar.",
-        { pendingAction: "select_date", nextBestAction: "CHECK_SLOTS" },
+        "Please tell me the date you prefer.",
+        { pendingAction: "collect_booking_date", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" },
       );
+    else if (chosenOption.value.startsWith("date:")) {
+      const date = chosenOption.value.slice("date:".length);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date))
+        return directReply(
+          "What time would suit you? You can type any time between 10 AM and 6 PM.",
+          { pendingAction: "collect_booking_time", requestedDate: date, interactionType: "NONE", interactionOptionsJson: "[]", nextBestAction: "OFFER_BOOKING" },
+          timeSuggestionInteraction(timeSuggestions(date)),
+        );
+    }
     else if (chosenOption.value.startsWith("slot:"))
       content = chosenOption.value.slice("slot:".length);
+    else if (chosenOption.value.startsWith("time:"))
+      content = chosenOption.value.slice("time:".length);
+    else if (chosenOption.value === "action:directions")
+      return directReply("Directions: https://maps.google.com/?q=Radiance+Skin+%26+Hair+Clinics,+Bhubaneswar", { nextBestAction: "ANSWER", pendingAction: null, interactionType: "NONE", interactionOptionsJson: "[]" });
+    else if (chosenOption.value === "action:cancel")
+      content = "Cancel my appointment";
+    else if (chosenOption.value === "action:reschedule")
+      return directReply("Sure — which day and time would you prefer? You can simply type something like “Monday at 4 PM.”", { pendingAction: "collect_reschedule", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
     else if (chosenOption.value === "topic:procedure")
       return directReply(
-        "The exact procedure plan depends on the concern and doctor assessment. I can explain the general process, or help you arrange a consultation.",
+        "The exact procedure plan depends on your concern and the doctor’s assessment. If you’d like, I can book a consultation.",
         { conversationPhase: "ANSWERING", nextBestAction: "OFFER_BOOKING" },
         consultationInteraction(),
       );
     else if (chosenOption.value === "topic:suitability")
       return directReply(
-        "Suitability can only be confirmed after the doctor assesses your concern. I can check consultation availability if you’d like.",
+        "Suitability can only be confirmed after the doctor assesses your concern. If you’d like, I can book a consultation.",
         { conversationPhase: "CONSIDERATION", nextBestAction: "OFFER_BOOKING" },
         consultationInteraction(),
       );
@@ -451,7 +472,7 @@ export async function processPatientMessage(
       );
     else if (chosenOption.value === "topic:assessment")
       return directReply(
-        "During consultation, the doctor examines the concern and decides the appropriate treatment plan and final estimate. Would you like to check the available times?",
+        "During consultation, the doctor examines the concern and decides the appropriate treatment plan and final estimate. Would you like to book a consultation?",
         { conversationPhase: "CONSIDERATION", nextBestAction: "OFFER_BOOKING" },
         consultationInteraction(),
       );
@@ -473,6 +494,89 @@ export async function processPatientMessage(
       },
       greetingInteraction(),
     );
+  }
+  const currentAppointment = refreshed.appointment;
+  const pendingBooking = ["collect_booking_date", "collect_booking_time", "collect_reschedule"].includes(String(refreshed.state.pendingAction || ""));
+  const rescheduleRequest = /\b(?:reschedule|move|make it|change).*?(?:appointment|consultation|slot|time)?\b/i.test(content) && currentAppointment?.status === "confirmed";
+  const cancellationRequest = /\b(?:cancel|cancel it|cancel my booking|cannot make it|can't make it)\b/i.test(content) && currentAppointment?.status === "confirmed";
+  const bookingStatusQuestion = /\b(?:is|was).*(?:my )?(?:consultation|appointment|booking).*(?:booked|confirmed)|\b(?:am i|i am).*(?:booked|confirmed)\b/i.test(content);
+  if (bookingStatusQuestion && currentAppointment?.status === "confirmed") {
+    const dateTime = String(currentAppointment.dateTime);
+    const [date, time] = dateTime.split("T");
+    return directReply(`Yes. You’re confirmed for ${formatAppointmentDateTime(date, time.slice(0, 5))}.`, {
+      conversationPhase: "POST_BOOKING", nextBestAction: "ANSWER", pendingAction: null, pendingQuestion: null, offeredSlotsJson: "[]",
+    });
+  }
+  if (cancellationRequest) {
+    changeAppointment(String(currentAppointment!.id), "cancel");
+    addEvent(patientId, conversationId, "APPOINTMENT_CANCELLED", "Appointment cancelled", "Patient cancelled a confirmed appointment.");
+    addEvent(patientId, conversationId, "appointment_cancelled", "Analytics: appointment cancelled", "No sensitive content recorded.");
+    return directReply("Your consultation has been cancelled. If you’d like another time later, just message here.", {
+      conversationPhase: "CONSIDERATION", nextBestAction: "WAIT", pendingAction: null, pendingQuestion: null, offeredSlotsJson: "[]", interactionType: "NONE", interactionOptionsJson: "[]",
+    });
+  }
+
+  const parsedDate = parseAppointmentDate(content);
+  const parsedTime = hasApproximateAppointmentTime(content) ? null : parseAppointmentTime(content);
+  const requestedDate = parsedDate || (pendingBooking && refreshed.state.requestedDate ? String(refreshed.state.requestedDate) : null) || (rescheduleRequest && currentAppointment ? String(currentAppointment.dateTime).slice(0, 10) : null);
+  const requestedTime = parsedTime || (pendingBooking && refreshed.state.requestedTime ? String(refreshed.state.requestedTime) : null);
+  const clearlyDeclinedBooking = /\b(?:not now|not planning to book|don'?t want to book|need to think|thinking about it)\b/i.test(content);
+  const bookingIntent = !clearlyDeclinedBooking && (explicitBookingRequest(content) || pendingBooking || rescheduleRequest || Boolean(parsedDate && parsedTime));
+  if (bookingIntent) {
+    addEvent(patientId, conversationId, "CONSULTATION_INTENT_DETECTED", "Consultation intent detected", "Deterministic booking policy engaged.");
+    if (requestedDate && requestedTime) {
+      const check = checkAppointmentTime(requestedDate, requestedTime);
+      if (!check.ok) {
+        if (check.code === "CLOSED") {
+          const interaction: Interaction = check.nextOpenDate ? { type: "BUTTONS", options: [{ id: "next_open_day", label: "Next open day", value: `date:${check.nextOpenDate}` }, { id: "another_date", label: "Choose another date", value: "date:other" }] } : dateInteraction();
+          return directReply(`The clinic is closed on that day. ${check.nextOpenDate ? "I can book you on the next open day." : "Please choose another date."}`, { pendingAction: "collect_booking_date", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, interaction);
+        }
+        if (check.code === "OUTSIDE_HOURS" || check.code === "BLOCKED") {
+          const hours = clinicHoursLabel(check.ranges) || "10 AM and 6 PM";
+          return directReply(`That time is outside the clinic’s booking hours. Please choose a time between ${hours}.`, { pendingAction: "collect_booking_time", requestedDate, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, timeSuggestionInteraction(timeSuggestions(requestedDate, dayPartFromText(content))));
+        }
+        if (check.code === "PAST") return directReply("That time has already passed. Please choose a later time or another day.", { pendingAction: "collect_booking_time", requestedDate, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, timeSuggestionInteraction(timeSuggestions(requestedDate)));
+        return directReply("I can’t book that time under the clinic’s current schedule. Please choose another day or a time between 10 AM and 6 PM.", { pendingAction: "collect_booking_date", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
+      }
+      try {
+        const concern = String(refreshed.patient.primaryConcern || refreshed.state.currentConcern || refreshed.patient.treatmentSlug || "General consultation").slice(0, 400);
+        const appointment = createAppointment({ patientId, conversationId, treatmentSlug: String(refreshed.patient.treatmentSlug || refreshed.state.currentTreatment || "") || null, date: requestedDate, time: requestedTime, source: String(refreshed.patient.source) === "local_test" ? "LOCAL_TEST" : "WHATSAPP_AI", notes: `Concern: ${concern}. AI booking context saved.` });
+        if (!appointment.duplicate) scheduleAppointmentJobs(appointment);
+        updateConversationState(conversationId, {
+          appointmentId: appointment.id, selectedSlot: requestedTime, requestedDate, requestedTime,
+          pendingAction: null, pendingQuestion: null, lastAssistantQuestion: null, offeredSlotsJson: "[]",
+          interactionType: "NONE", interactionOptionsJson: "[]", conversationPhase: "POST_BOOKING",
+          readinessScore: 100, readinessReason: "Consultation confirmed", nextBestAction: "ANSWER",
+        });
+        if (!appointment.duplicate) {
+          addEvent(patientId, conversationId, "APPOINTMENT_CREATED", "Appointment confirmed", formatAppointmentDateTime(requestedDate, requestedTime), { source: "WHATSAPP_AI", concern });
+          addEvent(patientId, conversationId, "appointment_created", "Analytics: appointment created", "No sensitive free-text stored.");
+          addAudit("APPOINTMENT_CREATED", "appointment", appointment.id, "Consultation automatically confirmed", "AI", { patientId, source: "WHATSAPP_AI" });
+        }
+        const dateTime = formatAppointmentDateTime(requestedDate, requestedTime);
+        const confirmation = appointment.duplicate
+          ? `You’re already booked for ${dateTime} at Radiance Clinics.`
+          : `${rescheduleRequest ? "Done — your consultation has been moved" : "Perfect — your consultation is confirmed"} for ${dateTime} at Radiance Clinics.`;
+        return { ...directReply(confirmation, { appointmentId: appointment.id, conversationPhase: "POST_BOOKING", nextBestAction: "ANSWER", pendingAction: null, pendingQuestion: null, offeredSlotsJson: "[]" }, confirmedAppointmentInteraction()), appointment };
+      } catch (error) {
+        createHumanTask({ patientId, conversationId, type: "CHAT", priority: "HIGH", title: "Appointment save failed", reason: error instanceof Error ? error.message : "Database write failed while confirming a booking.", suggestedReply: "Please confirm a consultation time with the patient." });
+        addEvent(patientId, conversationId, "APPOINTMENT_BOOKING_FAILED", "Appointment could not be saved", "Staff follow-up created.");
+        addEvent(patientId, conversationId, "appointment_booking_failed", "Analytics: appointment booking failed", "No sensitive free-text stored.");
+        return directReply("I couldn’t save the appointment just now. I’ve flagged this for the clinic team, who can follow up with you shortly.", { pendingAction: null, pendingQuestion: null, offeredSlotsJson: "[]", nextBestAction: "HUMAN_CHAT" });
+      }
+    }
+    if (requestedDate) {
+      const part = dayPartFromText(content) || (refreshed.state.requestedDayPart as "morning" | "afternoon" | "evening" | null);
+      const suggestions = timeSuggestions(requestedDate, part);
+      const dayText = part === "afternoon" ? "between 12 PM and 6 PM" : part === "evening" ? "between 5 PM and 6 PM" : "between 10 AM and 6 PM";
+      addEvent(patientId, conversationId, "BOOKING_DATE_COLLECTED", "Booking date collected", requestedDate);
+      return directReply(`Sure. What time would work for you ${dayText}? You can also type any time in that range.`, { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_time", requestedDate, requestedDayPart: part, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, timeSuggestionInteraction(suggestions));
+    }
+    if (parsedTime) {
+      addEvent(patientId, conversationId, "BOOKING_TIME_COLLECTED", "Booking time collected", parsedTime);
+      return directReply("Sure — which day would you prefer?", { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_date", requestedTime: parsedTime, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
+    }
+    return directReply("Sure — which day would you prefer for your consultation?", { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_date", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
   }
   if (
     /(?:cancel|रद्द|ବାତିଲ).*(?:appointment|booking|consultation|अपॉइंटमेंट|ଆପଏଣ୍ଟମେଣ୍ଟ)|(?:cannot|can't) make it/i.test(
@@ -604,9 +708,9 @@ export async function processPatientMessage(
         ),
       );
       return { ...result, appointment };
-    } catch (error) {
+    } catch {
       return directReply(
-        `${error instanceof Error ? error.message : "That time is unavailable."} Please ask me to check the available times again.`,
+        "I couldn’t save that appointment time. Please choose another time during the clinic’s normal hours.",
         {
           pendingAction: null,
           offeredSlotsJson: "[]",
@@ -1319,7 +1423,7 @@ export async function processPatientMessage(
         direction: "outbound",
         senderType: "ai",
         messageType: "interactive",
-        content: withInteractionText(reply, interaction),
+        content: reply,
         metadata: { offeredDate, slots, interaction },
       });
       addEvent(
@@ -1377,7 +1481,7 @@ export async function processPatientMessage(
       : noInteraction;
   const responseText = item
     ? `${contentShareReply(language, String(item.title))}\n\n${String(item.description)}`
-    : withInteractionText(decision.reply, responseInteraction);
+    : decision.reply;
   const sentMessage = addMessage({
     patientId,
     conversationId,

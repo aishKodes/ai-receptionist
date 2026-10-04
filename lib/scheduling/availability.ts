@@ -1,8 +1,8 @@
 import { addDays } from "date-fns";
 import { getDatabase, nowIso } from "@/db";
-import { appointmentWeekdays, emptyAppointmentConfiguration, type AppointmentConfiguration, type BlockedSlot, type TimeRange } from "./appointment-types";
+import { appointmentWeekdays, emptyAppointmentConfiguration, type AppointmentConfiguration, type BlockedSlot, type SpecialClinicHours, type TimeRange } from "./appointment-types";
 
-export { appointmentWeekdays, emptyAppointmentConfiguration, type AppointmentConfiguration, type AppointmentWeekday, type BlockedSlot, type TimeRange } from "./appointment-types";
+export { appointmentWeekdays, emptyAppointmentConfiguration, type AppointmentConfiguration, type AppointmentWeekday, type BlockedSlot, type SpecialClinicHours, type TimeRange } from "./appointment-types";
 
 function timeIsValid(value: unknown) {
   return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
@@ -38,6 +38,20 @@ export function appointmentConfiguration(settings = configuredSettings()): Appoi
   const blockedSlots = Array.isArray(candidate.blockedSlots)
     ? candidate.blockedSlots.filter((slot): slot is BlockedSlot => Boolean(slot && typeof slot === "object" && /^\d{4}-\d{2}-\d{2}$/.test(String((slot as BlockedSlot).date)) && timeIsValid((slot as BlockedSlot).time)))
     : [];
+  const specialHours = Array.isArray(candidate.specialHours)
+    ? candidate.specialHours.filter((item): item is SpecialClinicHours => {
+      if (!item || typeof item !== "object") return false;
+      const special = item as SpecialClinicHours;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(special.date)) || typeof special.isClosed !== "boolean") return false;
+      return special.isClosed || (timeIsValid(special.openingTime) && timeIsValid(special.closingTime) && String(special.openingTime) < String(special.closingTime));
+    }).map((item) => ({
+      date: item.date,
+      openingTime: item.isClosed ? null : item.openingTime,
+      closingTime: item.isClosed ? null : item.closingTime,
+      isClosed: item.isClosed,
+      label: String(item.label || "").slice(0, 160),
+    }))
+    : [];
   return {
     weekly,
     slotMinutes: Number.isInteger(slotMinutes) && slotMinutes >= 10 && slotMinutes <= 180 ? slotMinutes : 0,
@@ -45,6 +59,10 @@ export function appointmentConfiguration(settings = configuredSettings()): Appoi
     maxAdvanceDays: Number.isInteger(maxAdvanceDays) && maxAdvanceDays >= 1 && maxAdvanceDays <= 365 ? maxAdvanceDays : 0,
     closedDates: [...new Set(closedDates)],
     blockedSlots: [...new Map(blockedSlots.map((slot) => [`${slot.date}T${slot.time}`, slot])).values()],
+    arbitraryTimes: candidate.arbitraryTimes !== false,
+    sameDayBooking: candidate.sameDayBooking !== false,
+    autoConfirm: candidate.autoConfirm !== false,
+    specialHours: [...new Map(specialHours.map((item) => [item.date, item])).values()],
   };
 }
 
@@ -86,8 +104,13 @@ export function refreshAppointmentAvailability(config = appointmentConfiguration
     for (let offset = 0; offset <= config.maxAdvanceDays; offset += 1) {
       const date = formatIstDate(addDays(now, offset));
       if (config.closedDates.includes(date)) continue;
+      const special = config.specialHours.find((item) => item.date === date);
+      if (special?.isClosed) continue;
       const weekday = appointmentWeekdays[new Date(`${date}T12:00:00+05:30`).getUTCDay()];
-      for (const time of timesForRanges(config.weekly[weekday], config.slotMinutes)) {
+      const ranges = special && special.openingTime && special.closingTime
+        ? [{ start: special.openingTime, end: special.closingTime }]
+        : config.weekly[weekday];
+      for (const time of timesForRanges(ranges, config.slotMinutes)) {
         if (blocked.has(`${date}T${time}`)) continue;
         insert.run(`slot_${date}_${time.replace(":", "")}`, date, time);
         generated += 1;

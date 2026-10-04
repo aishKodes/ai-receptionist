@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { addAudit, addEvent, addMessage, bookAppointment, changeAppointment, getPatientContext, rescheduleAppointment, scheduleAppointmentJobs, timeLabel } from "@/lib/services/repository";
+import { addAudit, addEvent, addMessage, changeAppointment, createAppointment, getPatientContext, rescheduleAppointment, scheduleAppointmentJobs, timeLabel } from "@/lib/services/repository";
 import { enforceRateLimit, enforceSameOrigin } from "@/lib/security/http";
 import { deliverStoredMessage } from "@/lib/channels/delivery";
 
@@ -27,8 +27,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     if (!input.date || !input.time) throw new Error("Date and time are required");
-    const appointment = input.action === "reschedule" && input.appointmentId ? rescheduleAppointment(input.appointmentId, input.date, input.time) : bookAppointment(input.patientId, conversationId, String(context.patient.treatmentSlug || "general_skin"), input.date, input.time);
-    const schedule = input.action === "reschedule" ? { firstSeconds: 0, secondSeconds: 0 } : scheduleAppointmentJobs(appointment);
+    const appointment = input.action === "reschedule" && input.appointmentId
+      ? rescheduleAppointment(input.appointmentId, input.date, input.time)
+      : createAppointment({ patientId: input.patientId, conversationId, treatmentSlug: String(context.patient.treatmentSlug || "general_skin"), date: input.date, time: input.time, source: "CRM", notes: "Booked by CRM staff" });
+    const schedule = input.action === "reschedule" || appointment.duplicate ? { firstSeconds: 0, secondSeconds: 0 } : scheduleAppointmentJobs(appointment);
     const copy = `Your consultation at Radiance Clinics, Bhubaneswar is confirmed for ${timeLabel(appointment.dateTime)}.`;
     const message = addMessage({ patientId: input.patientId, conversationId, direction: "outbound", senderType: "automation", messageType: "appointment", content: copy, metadata: { appointmentId: appointment.id, dateTime: appointment.dateTime, status: "confirmed" } });
     const delivery = await deliverStoredMessage(message.id);

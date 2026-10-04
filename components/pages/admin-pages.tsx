@@ -717,12 +717,24 @@ function FeedbackMessage({
 
 export function AppointmentsPage() {
   const { data, refresh } = useRadianceState();
+  const [view, setView] = useState("Today");
   const [patientId, setPatientId] = useState("");
   const [date, setDate] = useState(
     format(addDays(new Date(), 1), "yyyy-MM-dd"),
   );
   const [time, setTime] = useState("17:30");
   const effectivePatientId = patientId || data?.patients[0]?.id || "";
+  const today = format(new Date(), "yyyy-MM-dd");
+  const tomorrow = format(addDays(new Date(), 1), "yyyy-MM-dd");
+  const visibleAppointments = (data?.appointments || []).filter((appointment) => {
+    const day = appointment.dateTime.slice(0, 10);
+    if (view === "Today") return day === today && appointment.status === "confirmed";
+    if (view === "Tomorrow") return day === tomorrow && appointment.status === "confirmed";
+    if (view === "Upcoming") return day >= today && appointment.status === "confirmed";
+    if (view === "Completed") return appointment.status === "complete" || appointment.status === "completed";
+    if (view === "Cancelled") return appointment.status === "cancelled" || appointment.status === "rescheduled";
+    return true;
+  });
   async function book() {
     const response = await fetch("/api/appointments", {
       method: "POST",
@@ -817,8 +829,9 @@ export function AppointmentsPage() {
                 value={`${data.appointments.filter((item) => item.status === "confirmed").length} confirmed`}
               />
             </div>
+            <div className="segmented">{["Today", "Tomorrow", "Upcoming", "Completed", "Cancelled", "All"].map((item) => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>{item}</button>)}</div>
             <div className="appointment-list">
-              {data.appointments.map((appointment) => (
+              {visibleAppointments.map((appointment) => (
                 <div
                   className={`appointment-row status-${appointment.status}`}
                   key={appointment.id}
@@ -852,6 +865,7 @@ export function AppointmentsPage() {
                         {titleCase(appointment.treatmentSlug)} ·{" "}
                         {appointment.phone}
                       </span>
+                      <span>{appointment.notes?.startsWith("CRM") ? "CRM" : "AI / WhatsApp"} · {appointment.notes?.replace(/^.*?Concern:\s*/i, "").split(".")[0] || "Consultation"}</span>
                     </div>
                   </div>
                   <StatusBadge value={appointment.status} />
@@ -892,7 +906,7 @@ export function AppointmentsPage() {
                   )}
                 </div>
               ))}
-              {!data.appointments.length && (
+              {!visibleAppointments.length && (
                 <div className="empty-list">
                   <CalendarDays />
                   <strong>No appointments yet</strong>

@@ -14,6 +14,18 @@ const Configuration = z.object({
   maxAdvanceDays: z.number().int().min(1).max(365),
   closedDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(365),
   blockedSlots: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), time: Time })).max(1000),
+  arbitraryTimes: z.boolean(),
+  sameDayBooking: z.boolean(),
+  autoConfirm: z.boolean(),
+  specialHours: z.array(z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    openingTime: Time.nullable(),
+    closingTime: Time.nullable(),
+    isClosed: z.boolean(),
+    label: z.string().max(160),
+  }).superRefine((item, ctx) => {
+    if (!item.isClosed && (!item.openingTime || !item.closingTime || item.openingTime >= item.closingTime)) ctx.addIssue({ code: "custom", message: "Open special hours need a valid opening and closing time." });
+  })).max(365),
 });
 
 export function GET() {

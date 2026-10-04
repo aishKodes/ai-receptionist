@@ -6,4 +6,6 @@ export class LocalCaptureChannel implements MessageChannel {
   async sendText() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
   async sendContent() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
   async sendTemplate() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
+  async sendQuickReplies() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
+  async sendList() { return { id: crypto.randomUUID(), status: "stored_locally" }; }
 }

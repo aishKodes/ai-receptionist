@@ -1,6 +1,7 @@
 import { getDatabase } from "@/db";
 import { addAudit } from "@/lib/services/repository";
 import { RealWhatsAppCloudChannel } from "./whatsapp-cloud";
+import { formatInteraction } from "@/lib/product/interactions";
 
 type StoredOutboundMessage = {
   id: string;
@@ -12,6 +13,7 @@ type StoredOutboundMessage = {
   serviceWindowExpiresAt: string | null;
   content: string;
   mediaUrl: string | null;
+  metadataJson: string | null;
   externalMessageId: string | null;
 };
 
@@ -28,7 +30,7 @@ function storedOutboundMessage(messageId: string) {
     SELECT m.id,m.conversation_id AS conversationId,m.patient_id AS patientId,
       c.channel,p.phone,p.whatsapp_id AS whatsappId,
       p.service_window_expires_at AS serviceWindowExpiresAt,
-      m.content,m.media_url AS mediaUrl,m.external_message_id AS externalMessageId
+      m.content,m.media_url AS mediaUrl,m.metadata_json AS metadataJson,m.external_message_id AS externalMessageId
     FROM messages m
     JOIN conversations c ON c.id=m.conversation_id
     JOIN patients p ON p.id=m.patient_id
@@ -56,9 +58,24 @@ export async function deliverStoredMessage(messageId: string, channelOverride?: 
 
   try {
     const cloud = new RealWhatsAppCloudChannel();
-    const sent = message.mediaUrl
-      ? await cloud.sendContent({ to: recipient, text: message.content, url: message.mediaUrl })
-      : await cloud.sendText({ to: recipient, text: message.content });
+    let interaction: { options?: Array<{ id: string; label: string }> } | null = null;
+    try { interaction = JSON.parse(message.metadataJson || "{}").interaction || null; } catch {}
+    const options = interaction?.options?.filter((option) => option?.id && option?.label) || [];
+    let sent;
+    try {
+      sent = message.mediaUrl
+        ? await cloud.sendContent({ to: recipient, text: message.content, url: message.mediaUrl })
+        : options.length > 3
+          ? await cloud.sendList({ to: recipient, text: message.content, sections: [{ title: "Radiance Clinics", options }] })
+          : options.length
+            ? await cloud.sendQuickReplies({ to: recipient, text: message.content, options })
+            : await cloud.sendText({ to: recipient, text: message.content });
+    } catch (error) {
+      // A provider/channel that rejects interactive payloads still receives a
+      // usable numbered-text equivalent; conversation logic never depends on it.
+      if (!options.length || !/(?:interactive|button|list|unsupported|\(400\))/i.test(error instanceof Error ? error.message : "")) throw error;
+      sent = await cloud.sendText({ to: recipient, text: `${message.content}\n\n${formatInteraction({ type: "BUTTONS", options: options.map((option) => ({ ...option, value: option.id })) })}` });
+    }
     db.prepare("UPDATE messages SET external_message_id=?,delivery_status=? WHERE id=?").run(sent.id, sent.status, message.id);
     addAudit("WHATSAPP_SENT", "message", message.id, "WhatsApp reply accepted by Meta", "SYSTEM", { patientId: message.patientId, externalMessageId: sent.id });
     return { ok: true, externalMessageId: sent.id, status: sent.status };

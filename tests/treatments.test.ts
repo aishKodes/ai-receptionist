@@ -63,7 +63,7 @@ describe("treatment catalog and lead context", () => {
       resolveInteractionInput("2", greetingInteraction().options)?.value,
     ).toBe("category:skin");
   });
-  it("completes the progressive hair price-to-slot funnel with numeric choices", async () => {
+  it("uses selectable choices only for a genuine booking-time decision", async () => {
     await processPatientMessage("pat_rahul", "Hi");
     expect(
       String(getPatientContext("pat_rahul")?.messages.at(-1)?.content),
@@ -77,8 +77,8 @@ describe("treatment catalog and lead context", () => {
     await processPatientMessage("pat_rahul", "1");
     await processPatientMessage("pat_rahul", "2");
     const state = getPatientContext("pat_rahul")!.state;
-    expect(state.pendingAction).toBe("select_slot");
-    expect(JSON.parse(String(state.offeredSlotsJson))).not.toHaveLength(0);
+    expect(state.pendingAction).toBe("collect_booking_time");
+    expect(String(state.interactionOptionsJson)).toContain("time_");
   });
   it("keeps one next action for every active lead", () => {
     const missing = getSqlite()
@@ -143,10 +143,7 @@ describe("treatment catalog and lead context", () => {
   it("keeps Saturday closed and Sunday through Friday on the approved clinic schedule", () => {
     const schedule = appointmentConfiguration();
     expect(schedule.weekly.saturday).toHaveLength(0);
-    expect(schedule.weekly.sunday).toEqual([
-      { start: "10:00", end: "13:30" },
-      { start: "15:30", end: "19:30" },
-    ]);
+    expect(schedule.weekly.sunday).toEqual([{ start: "10:00", end: "18:00" }]);
   });
   it("creates no-show recovery state and offers a schedule-safe reschedule", async () => {
     changeAppointment("apt_debashish", "no_show");

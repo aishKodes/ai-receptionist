@@ -41,6 +41,7 @@ try {
     );
   }
   const additive: Array<[string, string, string]> = [
+    ["appointments", "booking_key", "VARCHAR(180) NULL"],
     ["treatments", "benefits_json", "LONGTEXT"],
     ["treatments", "conversation_options_json", "LONGTEXT"],
     [
@@ -104,6 +105,19 @@ try {
         `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`,
       );
   }
+  // Appointments are no longer single-capacity slots. Retain duplicate-event
+  // protection per conversation/date/time, while allowing the clinic team to
+  // accept more than one consultation at a valid time.
+  const [confirmedSlotIndex] = await connection.execute(
+    "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='appointments' AND INDEX_NAME='idx_appointments_confirmed_slot'",
+  );
+  if (Number((confirmedSlotIndex as Array<{ total: number }>)[0]?.total || 0))
+    await connection.query("ALTER TABLE appointments DROP INDEX idx_appointments_confirmed_slot");
+  const [bookingKeyIndex] = await connection.execute(
+    "SELECT COUNT(*) AS total FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='appointments' AND INDEX_NAME='idx_appointments_booking_key'",
+  );
+  if (!Number((bookingKeyIndex as Array<{ total: number }>)[0]?.total || 0))
+    await connection.query("CREATE UNIQUE INDEX idx_appointments_booking_key ON appointments (booking_key)");
   await connection.query(
     "CREATE TABLE IF NOT EXISTS marketing_daily_quota (day VARCHAR(10) PRIMARY KEY, used INT NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
   );
@@ -197,37 +211,23 @@ try {
     dormantLeadFollowup: "true",
     appointmentScheduleJson: JSON.stringify({
       weekly: {
-        sunday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
-        monday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
-        tuesday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
-        wednesday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
-        thursday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
-        friday: [
-          { start: "10:00", end: "13:30" },
-          { start: "15:30", end: "19:30" },
-        ],
+        sunday: [{ start: "10:00", end: "18:00" }],
+        monday: [{ start: "10:00", end: "18:00" }],
+        tuesday: [{ start: "10:00", end: "18:00" }],
+        wednesday: [{ start: "10:00", end: "18:00" }],
+        thursday: [{ start: "10:00", end: "18:00" }],
+        friday: [{ start: "10:00", end: "18:00" }],
         saturday: [],
       },
       slotMinutes: 30,
-      bookingLeadMinutes: 30,
+      bookingLeadMinutes: 0,
       maxAdvanceDays: 30,
       closedDates: [],
       blockedSlots: [],
+      arbitraryTimes: true,
+      sameDayBooking: true,
+      autoConfirm: true,
+      specialHours: [],
     }),
   };
   for (const [key, value] of Object.entries(settings)) {
@@ -235,6 +235,11 @@ try {
       "INSERT IGNORE INTO settings (`key`,value,updated_at) VALUES (?,?,?)",
       [key, value, now],
     );
+  }
+  const [policyVersionRows] = await connection.execute("SELECT value FROM settings WHERE `key`='appointmentPolicyVersion' LIMIT 1");
+  if ((policyVersionRows as Array<{ value: string }>)[0]?.value !== "radiance-open-hours-v2") {
+    await connection.execute("INSERT INTO settings (`key`,value,updated_at) VALUES ('appointmentScheduleJson',?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_at=VALUES(updated_at)", [settings.appointmentScheduleJson, now]);
+    await connection.execute("INSERT INTO settings (`key`,value,updated_at) VALUES ('appointmentPolicyVersion','radiance-open-hours-v2',?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_at=VALUES(updated_at)", [now]);
   }
   const [futureSlotRows] = await connection.execute(
     "SELECT COUNT(*) AS total FROM available_slots WHERE `date`>=DATE_FORMAT(CONVERT_TZ(UTC_TIMESTAMP(),'+00:00','+05:30'),'%Y-%m-%d')",

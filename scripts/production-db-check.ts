@@ -25,7 +25,7 @@ const requiredColumns: Record<string, string[]> = {
 const requiredIndexes: Record<string, string[]> = {
   patients: ["idx_patients_score", "idx_patients_whatsapp"],
   messages: ["idx_messages_external_id", "idx_messages_conversation_created"],
-  appointments: ["idx_appointments_confirmed_slot"],
+  appointments: ["idx_appointments_booking_key"],
   scheduled_jobs: ["idx_jobs_due"],
   outbound_messages: ["idx_outbound_due", "idx_outbound_campaign_patient"],
 };
