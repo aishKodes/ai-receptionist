@@ -52,6 +52,7 @@
     "recharts": "^3.10.1",
     "sonner": "^2.0.8",
     "tailwindcss": "4.2.1",
+    "tsx": "^4.23.12",
     "typescript": "5.9.3",
     "zod": "^4.4.3"
   },
@@ -66,7 +67,6 @@
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "react-server-dom-webpack": "^19.2.8",
-    "tsx": "^4.23.12",
     "vinext": "0.0.50",
     "vite": "^8.2.2",
     "vitest": "^4.1.10",
