@@ -524,6 +524,7 @@ export async function processPatientMessage(
   const bookingIntent = !clearlyDeclinedBooking && (explicitBookingRequest(content) || pendingBooking || rescheduleRequest || Boolean(parsedDate && parsedTime));
   if (bookingIntent) {
     addEvent(patientId, conversationId, "CONSULTATION_INTENT_DETECTED", "Consultation intent detected", "Deterministic booking policy engaged.");
+    addEvent(patientId, conversationId, "consultation_intent_detected", "Analytics: consultation intent detected", "No sensitive free-text stored.");
     if (requestedDate && requestedTime) {
       const check = checkAppointmentTime(requestedDate, requestedTime);
       if (!check.ok) {
@@ -549,9 +550,12 @@ export async function processPatientMessage(
           readinessScore: 100, readinessReason: "Consultation confirmed", nextBestAction: "ANSWER",
         });
         if (!appointment.duplicate) {
-          addEvent(patientId, conversationId, "APPOINTMENT_CREATED", "Appointment confirmed", formatAppointmentDateTime(requestedDate, requestedTime), { source: "WHATSAPP_AI", concern });
-          addEvent(patientId, conversationId, "appointment_created", "Analytics: appointment created", "No sensitive free-text stored.");
-          addAudit("APPOINTMENT_CREATED", "appointment", appointment.id, "Consultation automatically confirmed", "AI", { patientId, source: "WHATSAPP_AI" });
+          const lifecycleEvent = rescheduleRequest ? "APPOINTMENT_RESCHEDULED" : "APPOINTMENT_CREATED";
+          const analyticsEvent = rescheduleRequest ? "appointment_rescheduled" : "appointment_created";
+          const lifecycleTitle = rescheduleRequest ? "Appointment rescheduled" : "Appointment confirmed";
+          addEvent(patientId, conversationId, lifecycleEvent, lifecycleTitle, formatAppointmentDateTime(requestedDate, requestedTime), { source: "WHATSAPP_AI", concern });
+          addEvent(patientId, conversationId, analyticsEvent, `Analytics: ${lifecycleTitle.toLowerCase()}`, "No sensitive free-text stored.");
+          addAudit(lifecycleEvent, "appointment", appointment.id, rescheduleRequest ? "Consultation automatically rescheduled" : "Consultation automatically confirmed", "AI", { patientId, source: "WHATSAPP_AI" });
         }
         const dateTime = formatAppointmentDateTime(requestedDate, requestedTime);
         const confirmation = appointment.duplicate
@@ -570,10 +574,12 @@ export async function processPatientMessage(
       const suggestions = timeSuggestions(requestedDate, part);
       const dayText = part === "afternoon" ? "between 12 PM and 6 PM" : part === "evening" ? "between 5 PM and 6 PM" : "between 10 AM and 6 PM";
       addEvent(patientId, conversationId, "BOOKING_DATE_COLLECTED", "Booking date collected", requestedDate);
+      addEvent(patientId, conversationId, "booking_date_collected", "Analytics: booking date collected", "No sensitive free-text stored.");
       return directReply(`Sure. What time would work for you ${dayText}? You can also type any time in that range.`, { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_time", requestedDate, requestedDayPart: part, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, timeSuggestionInteraction(suggestions));
     }
     if (parsedTime) {
       addEvent(patientId, conversationId, "BOOKING_TIME_COLLECTED", "Booking time collected", parsedTime);
+      addEvent(patientId, conversationId, "booking_time_collected", "Analytics: booking time collected", "No sensitive free-text stored.");
       return directReply("Sure — which day would you prefer?", { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_date", requestedTime: parsedTime, offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
     }
     return directReply("Sure — which day would you prefer for your consultation?", { activeFlow: "booking", pendingAction: rescheduleRequest ? "collect_reschedule" : "collect_booking_date", offeredSlotsJson: "[]", nextBestAction: "OFFER_BOOKING" }, dateInteraction());
